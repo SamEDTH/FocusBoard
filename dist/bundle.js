@@ -21461,11 +21461,7 @@ ${suffix}`;
           btn
         ),
         // Footer note
-        h(
-          "p",
-          { class: "ag-note" },
-          "\u{1F512} Your board is private to your account"
-        )
+        h("p", { class: "ag-note" }, "Your board is private to your account")
       )
     );
   }
