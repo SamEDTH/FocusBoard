@@ -42,9 +42,10 @@ jobs:
       # Stage only what the browser needs — skip src/, node_modules/, etc.
       - name: Prepare deploy directory
         run: |
-          mkdir _site
+          mkdir -p _site/src/css
           cp index.html _site/
           cp -r dist _site/
+          cp src/css/main.css _site/src/css/main.css
 
       - name: Upload Pages artifact
         if: github.ref == 'refs/heads/main'
