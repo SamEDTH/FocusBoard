@@ -1,0 +1,4 @@
+node_modules/
+
+# Keep dist/bundle.js so the app works directly from GitHub Pages
+# dist/ is intentionally NOT ignored
