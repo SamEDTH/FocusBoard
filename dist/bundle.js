@@ -20972,11 +20972,28 @@ ${suffix}`;
     S.userId = userId;
     S.loading = true;
     renderFn();
-    const remote = await loadBoard(userId);
-    if (remote) {
-      S.data = remote;
-      saveData(remote);
-    } else {
+    try {
+      const withTimeout = (promise, ms) => Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+      const remote = await withTimeout(loadBoard(userId), 1e4);
+      if (remote) {
+        S.data = remote;
+        saveData(remote);
+      } else {
+        const local = (() => {
+          try {
+            const r = localStorage.getItem(STORAGE_KEY);
+            return r ? JSON.parse(r) : null;
+          } catch {
+            return null;
+          }
+        })();
+        if (local) {
+          S.data = local;
+          saveBoard(userId, local).catch((e) => console.warn("[supabase] initial save failed:", e.message));
+        }
+      }
+    } catch (err) {
+      console.warn("[supabase] initFromSupabase failed, falling back to local data:", err.message);
       const local = (() => {
         try {
           const r = localStorage.getItem(STORAGE_KEY);
@@ -20985,10 +21002,7 @@ ${suffix}`;
           return null;
         }
       })();
-      if (local) {
-        S.data = local;
-        await saveBoard(userId, local);
-      }
+      if (local) S.data = local;
     }
     S.loading = false;
     renderFn();

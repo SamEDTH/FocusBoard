@@ -158,22 +158,36 @@ export async function initFromSupabase(userId) {
   S.loading = true;
   renderFn();
 
-  const remote = await loadBoard(userId);
-  if (remote) {
-    // Existing Supabase data — use it and refresh the local cache
-    S.data = remote;
-    saveData(remote);
-  } else {
-    // New user — migrate localStorage data if present, otherwise DEFAULT applies
+  try {
+    // Timeout safety: if Supabase hangs for >10 s, unblock the UI anyway
+    const withTimeout = (promise, ms) =>
+      Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+
+    const remote = await withTimeout(loadBoard(userId), 10_000);
+    if (remote) {
+      // Existing Supabase data — use it and refresh the local cache
+      S.data = remote;
+      saveData(remote);
+    } else {
+      // New user — migrate localStorage data if present, otherwise DEFAULT applies
+      const local = (() => {
+        try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : null; }
+        catch { return null; }
+      })();
+      if (local) {
+        S.data = local;
+        saveBoard(userId, local).catch(e => console.warn('[supabase] initial save failed:', e.message));
+      }
+      // If neither, S.data is already DEFAULT from startup
+    }
+  } catch (err) {
+    console.warn('[supabase] initFromSupabase failed, falling back to local data:', err.message);
+    // Fall back to whatever is in localStorage / DEFAULT
     const local = (() => {
       try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : null; }
       catch { return null; }
     })();
-    if (local) {
-      S.data = local;
-      await saveBoard(userId, local); // push existing data up to Supabase
-    }
-    // If neither, S.data is already DEFAULT from startup
+    if (local) S.data = local;
   }
 
   S.loading = false;
