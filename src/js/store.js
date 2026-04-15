@@ -1,6 +1,7 @@
 import { STORAGE_KEY, SETTINGS_KEY, DEFAULT, TODAY } from './constants.js';
 import { uid } from './utils.js';
 import { getTotalFreeMinutes, isAnyConnected } from './services/calendar.js';
+import { isSupabaseConfigured, loadBoard, saveBoard } from './services/supabase.js';
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 
@@ -100,6 +101,9 @@ export const S = {
   focusMinBlock: savedSettings.focusMinBlock ?? 30,
   followUpDays:  savedSettings.followUpDays  ?? 5,
   calFreeMinutes: null, // total free working-hour minutes today (null = not loaded / no calendar)
+  // Supabase auth + sync
+  userId:  null,    // logged-in user id; null = not signed in or Supabase not configured
+  loading: false,   // true while fetching board data from Supabase on sign-in
 };
 
 // Start listening if system theme was previously enabled
@@ -126,7 +130,55 @@ export async function loadCalFreeMinutes() {
 // ── Core state updaters ───────────────────────────────────────────────────────
 
 export function set(patch) { Object.assign(S, patch); renderFn(); }
-export function upd(newData) { S.data = newData; saveData(newData); renderFn(); }
+
+// Debounced Supabase save — waits 1 s after last change before writing
+let _sbSaveTimer = null;
+function scheduleSbSave(data) {
+  if (!isSupabaseConfigured() || !S.userId) return;
+  clearTimeout(_sbSaveTimer);
+  _sbSaveTimer = setTimeout(() => saveBoard(S.userId, data), 1000);
+}
+
+export function upd(newData) {
+  S.data = newData;
+  saveData(newData);      // instant localStorage write (cache)
+  scheduleSbSave(newData); // async Supabase write (cross-device sync)
+  renderFn();
+}
+
+// ── Supabase initialisation ───────────────────────────────────────────────────
+
+/**
+ * Called by render.js when the user signs in.
+ * Loads their board from Supabase; migrates any existing localStorage data
+ * for new users so nothing is lost on first sign-in.
+ */
+export async function initFromSupabase(userId) {
+  S.userId  = userId;
+  S.loading = true;
+  renderFn();
+
+  const remote = await loadBoard(userId);
+  if (remote) {
+    // Existing Supabase data — use it and refresh the local cache
+    S.data = remote;
+    saveData(remote);
+  } else {
+    // New user — migrate localStorage data if present, otherwise DEFAULT applies
+    const local = (() => {
+      try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : null; }
+      catch { return null; }
+    })();
+    if (local) {
+      S.data = local;
+      await saveBoard(userId, local); // push existing data up to Supabase
+    }
+    // If neither, S.data is already DEFAULT from startup
+  }
+
+  S.loading = false;
+  renderFn();
+}
 
 // ── Selectors ─────────────────────────────────────────────────────────────────
 

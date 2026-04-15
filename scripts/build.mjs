@@ -9,17 +9,21 @@
 
 import * as esbuild from 'esbuild';
 
-const passwordHash = process.env.PASSWORD_HASH ?? '';
-const isWatch      = process.argv.includes('--watch');
+const passwordHash   = process.env.PASSWORD_HASH    ?? '';
+const supabaseUrl    = process.env.SUPABASE_URL      ?? '';
+const supabaseKey    = process.env.SUPABASE_ANON_KEY ?? '';
+const isWatch        = process.argv.includes('--watch');
 
 const config = {
   entryPoints: ['src/js/render.js'],
   bundle:      true,
   outfile:     'dist/bundle.js',
   define: {
-    // Replaced with the literal hash string at compile time.
-    // Falls back to '' in local builds so the gate is skipped entirely.
-    __PASSWORD_HASH__: JSON.stringify(passwordHash),
+    // All three are injected from environment variables / GitHub Secrets.
+    // They are never written to source code.
+    __PASSWORD_HASH__:   JSON.stringify(passwordHash),
+    __SUPABASE_URL__:    JSON.stringify(supabaseUrl),
+    __SUPABASE_ANON_KEY__: JSON.stringify(supabaseKey),
   },
 };
 
@@ -29,5 +33,6 @@ if (isWatch) {
   console.log('Watching for changes…');
 } else {
   await esbuild.build(config);
-  console.log(`dist/bundle.js  (password gate: ${passwordHash ? 'enabled' : 'disabled — local build'})`);
+  const authMode = supabaseUrl ? 'Supabase (Google sign-in)' : passwordHash ? 'password gate' : 'open (local build)';
+  console.log(`dist/bundle.js  (auth: ${authMode})`);
 }

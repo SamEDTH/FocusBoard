@@ -1,5 +1,7 @@
 import { S, set, toggleTheme, toggleSystemTheme, updateWorkingHours, updateFocusDefaults, updateFollowUpDays, loadCalFreeMinutes } from '../store.js';
 import { isPasswordProtected, lockApp } from './passwordGate.js';
+import { isSupabaseConfigured, signOut } from '../services/supabase.js';
+import { S as AppS } from '../store.js';
 import { h } from '../dom.js';
 import {
   connectGoogle, disconnectGoogle, isGoogleConnected,
@@ -185,8 +187,20 @@ export function buildSettings() {
         return h('div', { class: 'wh-row' }, inp, h('span', { class: 'wh-sep' }, 'days'));
       })()),
 
+      // Sign out — shown when using Supabase auth
+      isSupabaseConfigured() && AppS.userId ? h('div', { class: 'settings-lock-row' },
+        h('div', null,
+          h('div', { class: 'settings-row-label' }, 'Account'),
+          h('div', { class: 'settings-row-sub' }, AppS.userId ? 'Signed in with Google' : ''),
+        ),
+        h('button', {
+          class: 'btn-lock',
+          onClick: async () => { set({ showSettings: false }); await signOut(); },
+        }, 'Sign out'),
+      ) : null,
+
       // Lock option — only shown when the deployed build has password protection enabled
-      isPasswordProtected() ? h('div', { class: 'settings-lock-row' },
+      !isSupabaseConfigured() && isPasswordProtected() ? h('div', { class: 'settings-lock-row' },
         h('div', null,
           h('div', { class: 'settings-row-label' }, 'Lock app'),
           h('div', { class: 'settings-row-sub' }, 'Require password again on next visit'),

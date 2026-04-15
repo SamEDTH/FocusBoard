@@ -11,5 +11,8 @@
   "devDependencies": {
     "esbuild": "^0.25.0",
     "serve": "^14.0.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.103.2"
   }
 }

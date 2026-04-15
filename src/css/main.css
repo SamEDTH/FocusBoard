@@ -285,6 +285,23 @@ body.is-dragging .sub-item { padding-top: 9px; padding-bottom: 9px; transition: 
 .suggest-btn:hover { border-color: var(--border3); color: var(--text3); }
 .focus-picker-wrap { margin-bottom: 10px; }
 
+/* ── Auth gate (Google sign-in) ── */
+.ag-overlay { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+.ag-box { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 40px 36px; width: 320px; display: flex; flex-direction: column; align-items: center; gap: 16px; box-shadow: 0 8px 40px rgba(0,0,0,0.12); }
+.ag-logo { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+.ag-logo-focus { color: var(--text); }
+.ag-logo-board { color: #378ADD; }
+.ag-sub { font-size: 13px; color: var(--text3); margin: 0; text-align: center; }
+.ag-note { font-size: 11px; color: var(--text4, #aaa); margin: 0; text-align: center; }
+.ag-btn { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 16px; background: var(--surface); border: 1px solid var(--border2); border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--text); cursor: pointer; transition: box-shadow 0.15s, background 0.15s; }
+.ag-btn:hover:not(:disabled) { box-shadow: 0 1px 6px rgba(0,0,0,0.15); background: var(--surface2); }
+.ag-btn:disabled { opacity: 0.6; cursor: default; }
+/* Loading spinner shown while fetching board data after sign-in */
+.sb-loading { position: fixed; inset: 0; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; }
+.sb-loading-logo { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+.sb-spinner { width: 24px; height: 24px; border: 2px solid var(--border2); border-top-color: #378ADD; border-radius: 50%; animation: spin 0.7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* ── Password gate ── */
 .pg-overlay { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 9999; }
 .pg-box { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 40px 36px; width: 320px; display: flex; flex-direction: column; align-items: center; gap: 16px; box-shadow: 0 8px 40px rgba(0,0,0,0.12); }

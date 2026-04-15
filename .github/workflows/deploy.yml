@@ -32,11 +32,11 @@ jobs:
         run: npm ci
 
       - name: Build bundle
-        # PASSWORD_HASH is a GitHub Secret — injected into the bundle at build time.
-        # It is never written to source code or the repo. Local builds without the
-        # secret produce an open-access bundle (gate disabled).
+        # Credentials are GitHub Secrets — injected at build time, never in source.
         env:
-          PASSWORD_HASH: ${{ secrets.PASSWORD_HASH }}
+          SUPABASE_URL:      ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          PASSWORD_HASH:     ${{ secrets.PASSWORD_HASH }}
         run: npm run build
 
       # Stage only what the browser needs — skip src/, node_modules/, etc.

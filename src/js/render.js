@@ -1,4 +1,6 @@
-import { S, setRenderFn, getPanelData, getFilteredItems, getActiveCatName, set, toggleSidebar, gotoDashboard, loadCalFreeMinutes } from './store.js';
+import { S, setRenderFn, getPanelData, getFilteredItems, getActiveCatName, set, toggleSidebar, gotoDashboard, loadCalFreeMinutes, initFromSupabase } from './store.js';
+import { isSupabaseConfigured, onAuthStateChange } from './services/supabase.js';
+import { buildAuthGate } from './components/authGate.js';
 import { isAuthenticated, buildPasswordGate } from './components/passwordGate.js';
 import { customSelect } from './dom.js';
 import { isOverdue, daysBefore, TODAY } from './utils.js';
@@ -583,14 +585,36 @@ function buildFocusBlocksView() {
 // ── Main render ───────────────────────────────────────────────────────────────
 
 export function render() {
-  // Show password gate if the deployed build has a hash configured and
-  // the user hasn't authenticated yet this session.
-  if (!isAuthenticated()) {
+  // ── Auth gate ────────────────────────────────────────────────────────────────
+  // Supabase takes priority when configured. Falls back to password hash gate
+  // for local / non-Supabase builds.
+  if (isSupabaseConfigured()) {
+    if (!S.userId) {
+      // Not signed in — show Google sign-in screen
+      document.body.className = S.theme;
+      const target = document.getElementById('app') || document.body;
+      target.innerHTML = '';
+      target.appendChild(buildAuthGate());
+      return;
+    }
+    if (S.loading) {
+      // Signed in but board data still loading
+      document.body.className = S.theme;
+      const target = document.getElementById('app') || document.body;
+      target.innerHTML = '';
+      target.appendChild(h('div', { class: 'sb-loading' },
+        h('div', { class: 'sb-loading-logo' },
+          h('span', { class: 'ag-logo-focus' }, 'focus'),
+          h('span', { class: 'ag-logo-board' }, 'board'),
+        ),
+        h('div', { class: 'sb-spinner' }),
+      ));
+      return;
+    }
+  } else if (!isAuthenticated()) {
+    // Fallback: password hash gate (local builds)
     document.body.className = S.theme;
-    const existing = document.getElementById('app');
-    if (existing) existing.innerHTML = '';
-    // Mount gate directly on body if #app doesn't exist yet
-    const target = existing || document.body;
+    const target = document.getElementById('app') || document.body;
     target.innerHTML = '';
     target.appendChild(buildPasswordGate(() => render()));
     return;
@@ -639,5 +663,27 @@ export function render() {
 
 document.body.className = S.theme;
 setRenderFn(render);
-render();
-loadCalFreeMinutes(); // fire-and-forget — re-renders when data arrives
+
+// ── Supabase auth listener ────────────────────────────────────────────────────
+// Fires immediately with INITIAL_SESSION, then on every sign-in/sign-out.
+if (isSupabaseConfigured()) {
+  onAuthStateChange(async (event, session) => {
+    if (session?.user && !S.userId) {
+      // Just signed in (or page loaded with an active session)
+      await initFromSupabase(session.user.id);
+      loadCalFreeMinutes();
+    } else if (!session?.user && S.userId) {
+      // Signed out
+      S.userId  = null;
+      S.loading = false;
+      render();
+    } else if (!session?.user) {
+      // No session on initial load — show auth gate
+      render();
+    }
+  });
+} else {
+  // No Supabase — render immediately (password gate or open access)
+  render();
+  loadCalFreeMinutes();
+}
