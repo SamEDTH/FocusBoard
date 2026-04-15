@@ -1,4 +1,5 @@
 import { S, set, toggleTheme, toggleSystemTheme, updateWorkingHours, updateFocusDefaults, updateFollowUpDays, loadCalFreeMinutes } from '../store.js';
+import { isPasswordProtected, lockApp } from './passwordGate.js';
 import { h } from '../dom.js';
 import {
   connectGoogle, disconnectGoogle, isGoogleConnected,
@@ -183,6 +184,18 @@ export function buildSettings() {
         inp.addEventListener('change', e => updateFollowUpDays(Math.max(1, parseInt(e.target.value) || 5)));
         return h('div', { class: 'wh-row' }, inp, h('span', { class: 'wh-sep' }, 'days'));
       })()),
+
+      // Lock option — only shown when the deployed build has password protection enabled
+      isPasswordProtected() ? h('div', { class: 'settings-lock-row' },
+        h('div', null,
+          h('div', { class: 'settings-row-label' }, 'Lock app'),
+          h('div', { class: 'settings-row-sub' }, 'Require password again on next visit'),
+        ),
+        h('button', {
+          class: 'btn-lock',
+          onClick: () => { lockApp(); set({ showSettings: false }); },
+        }, '🔒 Lock'),
+      ) : null,
     ),
   );
 

@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "description": "Personal task and workflow manager",
   "scripts": {
-    "build": "esbuild src/js/render.js --bundle --outfile=dist/bundle.js",
-    "watch": "esbuild src/js/render.js --bundle --outfile=dist/bundle.js --watch",
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
     "dev": "npx serve . --listen 3000",
     "build:dev": "npm run build && npm run dev"
   },

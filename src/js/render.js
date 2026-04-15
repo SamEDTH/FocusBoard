@@ -1,4 +1,5 @@
 import { S, setRenderFn, getPanelData, getFilteredItems, getActiveCatName, set, toggleSidebar, gotoDashboard, loadCalFreeMinutes } from './store.js';
+import { isAuthenticated, buildPasswordGate } from './components/passwordGate.js';
 import { customSelect } from './dom.js';
 import { isOverdue, daysBefore, TODAY } from './utils.js';
 import { h } from './dom.js';
@@ -582,6 +583,19 @@ function buildFocusBlocksView() {
 // ── Main render ───────────────────────────────────────────────────────────────
 
 export function render() {
+  // Show password gate if the deployed build has a hash configured and
+  // the user hasn't authenticated yet this session.
+  if (!isAuthenticated()) {
+    document.body.className = S.theme;
+    const existing = document.getElementById('app');
+    if (existing) existing.innerHTML = '';
+    // Mount gate directly on body if #app doesn't exist yet
+    const target = existing || document.body;
+    target.innerHTML = '';
+    target.appendChild(buildPasswordGate(() => render()));
+    return;
+  }
+
   document.body.className = S.theme;
   const app = document.getElementById('app');
   app.innerHTML = '';

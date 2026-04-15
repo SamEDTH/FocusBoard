@@ -1447,6 +1447,71 @@ Notes: ${task.notes}` : ""
     return container;
   }
 
+  // src/js/components/passwordGate.js
+  var REQUIRED_HASH = "" ? "" : null;
+  var AUTH_KEY = "focusboard-auth";
+  function isPasswordProtected() {
+    return !!REQUIRED_HASH;
+  }
+  function isAuthenticated() {
+    if (!REQUIRED_HASH) return true;
+    return localStorage.getItem(AUTH_KEY) === REQUIRED_HASH;
+  }
+  function lockApp() {
+    localStorage.removeItem(AUTH_KEY);
+  }
+  async function sha256hex(str) {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  function buildPasswordGate(onSuccess) {
+    const errorEl = h("p", { class: "pg-error" });
+    const input = h("input", { type: "password", class: "pg-input", placeholder: "Password", autocomplete: "current-password" });
+    const btn = h("button", { class: "pg-btn" }, "Unlock");
+    async function attempt() {
+      const val = input.value;
+      if (!val) return;
+      btn.disabled = true;
+      btn.textContent = "\u2026";
+      const hash = await sha256hex(val);
+      if (hash === REQUIRED_HASH) {
+        localStorage.setItem(AUTH_KEY, hash);
+        gate.remove();
+        onSuccess();
+      } else {
+        errorEl.textContent = "Incorrect password \u2014 try again.";
+        input.value = "";
+        input.focus();
+        btn.disabled = false;
+        btn.textContent = "Unlock";
+      }
+    }
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") attempt();
+    });
+    btn.addEventListener("click", attempt);
+    const gate = h(
+      "div",
+      { class: "pg-overlay" },
+      h(
+        "div",
+        { class: "pg-box" },
+        h(
+          "div",
+          { class: "pg-logo" },
+          h("span", { class: "pg-logo-focus" }, "focus"),
+          h("span", { class: "pg-logo-board" }, "board")
+        ),
+        h("p", { class: "pg-sub" }, "Enter your password to continue"),
+        input,
+        btn,
+        errorEl
+      )
+    );
+    requestAnimationFrame(() => input.focus());
+    return gate;
+  }
+
   // src/js/components/addForm.js
   function buildAddForm() {
     const panel = getPanelData();
@@ -1863,7 +1928,25 @@ Notes: ${task.notes}` : ""
           });
           inp.addEventListener("change", (e) => updateFollowUpDays(Math.max(1, parseInt(e.target.value) || 5)));
           return h("div", { class: "wh-row" }, inp, h("span", { class: "wh-sep" }, "days"));
-        })())
+        })()),
+        // Lock option — only shown when the deployed build has password protection enabled
+        isPasswordProtected() ? h(
+          "div",
+          { class: "settings-lock-row" },
+          h(
+            "div",
+            null,
+            h("div", { class: "settings-row-label" }, "Lock app"),
+            h("div", { class: "settings-row-sub" }, "Require password again on next visit")
+          ),
+          h("button", {
+            class: "btn-lock",
+            onClick: () => {
+              lockApp();
+              set({ showSettings: false });
+            }
+          }, "\u{1F512} Lock")
+        ) : null
       )
     );
     const frag = document.createDocumentFragment();
@@ -4483,6 +4566,15 @@ Notes: ${task.notes}` : ""
     return h("div", {}, title, sub, h("div", { class: "focus-block-list" }, ...rows));
   }
   function render() {
+    if (!isAuthenticated()) {
+      document.body.className = S.theme;
+      const existing = document.getElementById("app");
+      if (existing) existing.innerHTML = "";
+      const target = existing || document.body;
+      target.innerHTML = "";
+      target.appendChild(buildPasswordGate(() => render()));
+      return;
+    }
     document.body.className = S.theme;
     const app = document.getElementById("app");
     app.innerHTML = "";
