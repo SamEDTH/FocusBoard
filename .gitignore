@@ -1,4 +1,15 @@
 node_modules/
 
+# Claude Code project memory — may contain task titles/notes from AI sessions
+.claude/
+
+# OS & editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
 # Keep dist/bundle.js so the app works directly from GitHub Pages
 # dist/ is intentionally NOT ignored
