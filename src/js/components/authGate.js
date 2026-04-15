@@ -4,7 +4,7 @@ import { signInWithGoogle } from '../services/supabase.js';
 export function buildAuthGate() {
   const btn = h('button', { class: 'ag-btn' });
 
-  // Google logo
+  // Google 'G' logo SVG
   const logoSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   logoSvg.setAttribute('width', '18'); logoSvg.setAttribute('height', '18'); logoSvg.setAttribute('viewBox', '0 0 18 18');
   logoSvg.innerHTML = `
@@ -14,24 +14,43 @@ export function buildAuthGate() {
     <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z"/>
   `;
 
+  const btnLabel = document.createElement('span');
+  btnLabel.textContent = 'Continue with Google';
+
   btn.appendChild(logoSvg);
-  btn.appendChild(document.createTextNode(' Sign in with Google'));
+  btn.appendChild(btnLabel);
 
   btn.addEventListener('click', async () => {
     btn.disabled = true;
-    btn.childNodes[1].textContent = ' Redirecting…';
+    btnLabel.textContent = 'Redirecting…';
     await signInWithGoogle();
   });
 
-  return h('div', { class: 'ag-overlay' },
-    h('div', { class: 'ag-box' },
+  return h('div', { class: 'ag-page' },
+    h('div', { class: 'ag-card' },
+
+      // Logo
       h('div', { class: 'ag-logo' },
         h('span', { class: 'ag-logo-focus' }, 'focus'),
         h('span', { class: 'ag-logo-board' }, 'board'),
       ),
-      h('p', { class: 'ag-sub' }, 'Sign in to access your board'),
-      btn,
-      h('p', { class: 'ag-note' }, 'Your data is private to your account'),
+
+      // Tagline
+      h('p', { class: 'ag-tagline' }, 'Your tasks. Your focus. All in one place.'),
+
+      // Divider
+      h('div', { class: 'ag-divider' }),
+
+      // Sign-in block
+      h('div', { class: 'ag-signin' },
+        h('p', { class: 'ag-prompt' }, 'Sign in to continue'),
+        btn,
+      ),
+
+      // Footer note
+      h('p', { class: 'ag-note' },
+        '🔒 Your board is private to your account',
+      ),
     ),
   );
 }
