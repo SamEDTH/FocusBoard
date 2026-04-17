@@ -187,7 +187,7 @@ export function buildCard(item, catId) {
   const expanded = !!S.expandedCards[item.id];
   const editing  = S.editingCards[item.id];
   const overdue  = isOverdue(item.dueDate) && !item.done;
-  const draggable = S.view === 'category';
+  const draggable = S.view === 'category' && S.filter === 'all';
 
   const expandBtn = h('button', { class: `expand-btn${expanded ? ' open' : ''}`, onClick: e => { e.stopPropagation(); toggleCard(item.id); } },
     createSvg('10', '10', '0 0 10 10', '<path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'),

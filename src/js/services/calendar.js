@@ -8,6 +8,8 @@
  * Outlook uses MSAL.js popup flow.
  */
 
+import { getGoogleProviderToken, isSupabaseConfigured } from './supabase.js';
+
 const CAL_KEY = 'focusboard_calendar';
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -22,9 +24,18 @@ function save(s) {
 let state = load();
 
 export function getCalendarState() { return state; }
-export function isGoogleConnected()  { return !!(state.google?.accessToken || state.google?.refreshToken); }
-export function isOutlookConnected() { return !!(state.outlook?.clientId); }
-export function isAnyConnected()     { return isGoogleConnected() || isOutlookConnected(); }
+// Google is connected if: (a) manually connected via PKCE, or (b) signed in via Supabase Google OAuth with calendar token
+export function isGoogleConnected()    { return !!(state.google?.accessToken || state.google?.refreshToken || state.googleViaSupabase); }
+export function isGoogleViaSupabase()  { return !!state.googleViaSupabase; }
+export function isOutlookConnected()   { return !!(state.outlook?.clientId); }
+export function isAnyConnected()       { return isGoogleConnected() || isOutlookConnected(); }
+
+/** Called after Supabase sign-in with the provider token — auto-connects Google Calendar. */
+export function setGoogleFromSupabase(accessToken, expiresAt) {
+  if (!accessToken) return;
+  state.googleViaSupabase = { accessToken, expiresAt };
+  save(state);
+}
 
 // ── Script loader ─────────────────────────────────────────────────────────────
 
@@ -146,10 +157,31 @@ export function disconnectGoogle() {
     fetch(`https://oauth2.googleapis.com/revoke?token=${state.google.accessToken}`, { method: 'POST' }).catch(() => {});
   }
   delete state.google;
+  delete state.googleViaSupabase;
   save(state);
 }
 
 async function getGoogleToken() {
+  // ── Supabase-managed token (signed in via Google OAuth) ────────────────────
+  if (state.googleViaSupabase) {
+    if (Date.now() < state.googleViaSupabase.expiresAt - 60_000) {
+      return state.googleViaSupabase.accessToken;
+    }
+    // Token nearing expiry — ask Supabase for a fresh one
+    const fresh = await getGoogleProviderToken();
+    if (fresh) {
+      state.googleViaSupabase.accessToken = fresh;
+      state.googleViaSupabase.expiresAt   = Date.now() + 55 * 60_000;
+      save(state);
+      return fresh;
+    }
+    // Couldn't refresh — clear so UI shows reconnect prompt
+    delete state.googleViaSupabase;
+    save(state);
+    return null;
+  }
+
+  // ── Manual PKCE token ──────────────────────────────────────────────────────
   if (!state.google) return null;
   if (Date.now() < state.google.expiresAt) return state.google.accessToken;
   if (!state.google.refreshToken) throw new Error('Google Calendar session expired — please reconnect.');

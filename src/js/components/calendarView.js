@@ -197,10 +197,15 @@ export function buildCalendarView() {
   loadAll();
   const nowTimer = setInterval(updateNowLine, 60_000);
 
-  // Clean up interval when the view is removed from DOM
+  // Reload events when a focus block is booked anywhere in the app
+  const onBooked = () => loadAll();
+  document.addEventListener('focusboard:focus-booked', onBooked);
+
+  // Clean up interval + listener when the view is removed from DOM
   const observer = new MutationObserver(() => {
     if (!document.body.contains(scrollWrap)) {
       clearInterval(nowTimer);
+      document.removeEventListener('focusboard:focus-booked', onBooked);
       observer.disconnect();
     }
   });

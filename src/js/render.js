@@ -1,5 +1,6 @@
 import { S, setRenderFn, getPanelData, getFilteredItems, getActiveCatName, set, toggleSidebar, gotoDashboard, loadCalFreeMinutes, initFromSupabase } from './store.js';
 import { isSupabaseConfigured, onAuthStateChange } from './services/supabase.js';
+import { setGoogleFromSupabase } from './services/calendar.js';
 import { buildAuthGate } from './components/authGate.js';
 import { isAuthenticated, buildPasswordGate } from './components/passwordGate.js';
 import { customSelect } from './dom.js';
@@ -671,6 +672,11 @@ if (isSupabaseConfigured()) {
     if (session?.user && !S.userId) {
       // Just signed in (or page loaded with an active session)
       await initFromSupabase(session.user.id);
+      // Auto-connect Google Calendar using the provider token from the OAuth session
+      if (session.provider_token) {
+        const expiresAt = session.expires_at ? session.expires_at * 1000 : Date.now() + 55 * 60_000;
+        setGoogleFromSupabase(session.provider_token, expiresAt);
+      }
       loadCalFreeMinutes();
     } else if (!session?.user && S.userId) {
       // Signed out

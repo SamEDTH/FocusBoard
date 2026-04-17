@@ -536,394 +536,6 @@
     return "id-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
   }
 
-  // src/js/services/calendar.js
-  var CAL_KEY = "focusboard_calendar";
-  function load() {
-    try {
-      return JSON.parse(localStorage.getItem(CAL_KEY) || "{}");
-    } catch {
-      return {};
-    }
-  }
-  function save(s) {
-    try {
-      localStorage.setItem(CAL_KEY, JSON.stringify(s));
-    } catch {
-    }
-  }
-  var state = load();
-  function isGoogleConnected() {
-    return !!(state.google?.accessToken || state.google?.refreshToken);
-  }
-  function isOutlookConnected() {
-    return !!state.outlook?.clientId;
-  }
-  function isAnyConnected() {
-    return isGoogleConnected() || isOutlookConnected();
-  }
-  function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      if (document.querySelector(`script[src="${src}"]`)) return resolve();
-      const s = document.createElement("script");
-      s.src = src;
-      s.async = true;
-      s.onload = resolve;
-      s.onerror = () => reject(new Error(`Failed to load ${src}`));
-      document.head.appendChild(s);
-    });
-  }
-  function randomBase64url(bytes = 48) {
-    const arr = new Uint8Array(bytes);
-    crypto.getRandomValues(arr);
-    return btoa(String.fromCharCode(...arr)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
-  }
-  async function sha256Base64url(str) {
-    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
-    return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
-  }
-  var GOOGLE_CAL_BASE = "https://www.googleapis.com/calendar/v3";
-  var GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-  var GOOGLE_CAL_SCOPE = "https://www.googleapis.com/auth/calendar";
-  async function connectGoogle(clientId, clientSecret) {
-    const verifier = randomBase64url(48);
-    const challenge = await sha256Base64url(verifier);
-    const stateParam = randomBase64url(16);
-    const redirectUri = location.origin;
-    const authUrl = "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      response_type: "code",
-      scope: GOOGLE_CAL_SCOPE,
-      code_challenge: challenge,
-      code_challenge_method: "S256",
-      access_type: "offline",
-      prompt: "consent",
-      state: stateParam
-    });
-    const popup = window.open(authUrl, "_blank", "width=520,height=640,left=300,top=100");
-    if (!popup) throw new Error("Popup was blocked \u2014 please allow popups for this site and try again.");
-    const code = await new Promise((resolve, reject) => {
-      const timer = setInterval(() => {
-        try {
-          if (popup.closed) {
-            clearInterval(timer);
-            reject(new Error("Sign-in window was closed \u2014 please try again."));
-            return;
-          }
-          const url = new URL(popup.location.href);
-          if (url.origin !== location.origin) return;
-          clearInterval(timer);
-          popup.close();
-          const err = url.searchParams.get("error");
-          if (err) return reject(new Error(err === "access_denied" ? "Access was denied." : err));
-          const returnedState = url.searchParams.get("state");
-          if (returnedState !== stateParam) return reject(new Error("State mismatch \u2014 please try again."));
-          const c = url.searchParams.get("code");
-          if (!c) return reject(new Error("No authorisation code received."));
-          resolve(c);
-        } catch {
-        }
-      }, 250);
-      setTimeout(() => {
-        clearInterval(timer);
-        if (!popup.closed) popup.close();
-        reject(new Error("Sign-in timed out."));
-      }, 5 * 6e4);
-    });
-    const resp = await fetch(GOOGLE_TOKEN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        code,
-        client_id: clientId,
-        ...clientSecret ? { client_secret: clientSecret } : {},
-        redirect_uri: redirectUri,
-        grant_type: "authorization_code",
-        code_verifier: verifier
-      })
-    });
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      throw new Error(err.error_description || err.error || `Token exchange failed (${resp.status})`);
-    }
-    const tokens = await resp.json();
-    state.google = {
-      clientId,
-      clientSecret: clientSecret || null,
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token,
-      expiresAt: Date.now() + (tokens.expires_in - 60) * 1e3
-    };
-    save(state);
-  }
-  function disconnectGoogle() {
-    if (state.google?.accessToken) {
-      fetch(`https://oauth2.googleapis.com/revoke?token=${state.google.accessToken}`, { method: "POST" }).catch(() => {
-      });
-    }
-    delete state.google;
-    save(state);
-  }
-  async function getGoogleToken() {
-    if (!state.google) return null;
-    if (Date.now() < state.google.expiresAt) return state.google.accessToken;
-    if (!state.google.refreshToken) throw new Error("Google Calendar session expired \u2014 please reconnect.");
-    const resp = await fetch(GOOGLE_TOKEN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: state.google.clientId,
-        ...state.google.clientSecret ? { client_secret: state.google.clientSecret } : {},
-        grant_type: "refresh_token",
-        refresh_token: state.google.refreshToken
-      })
-    });
-    if (!resp.ok) throw new Error("Google token refresh failed \u2014 please reconnect.");
-    const tokens = await resp.json();
-    state.google.accessToken = tokens.access_token;
-    state.google.expiresAt = Date.now() + (tokens.expires_in - 60) * 1e3;
-    save(state);
-    return state.google.accessToken;
-  }
-  async function googleFetch(path, options = {}) {
-    const token = await getGoogleToken();
-    if (!token) throw new Error("Google Calendar not connected");
-    const resp = await fetch(`${GOOGLE_CAL_BASE}${path}`, {
-      ...options,
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...options.headers || {} }
-    });
-    if (!resp.ok) throw new Error(`Google API error: ${resp.status}`);
-    return resp.json();
-  }
-  async function getGoogleEvents(startISO, endISO) {
-    const params = new URLSearchParams({
-      timeMin: startISO,
-      timeMax: endISO,
-      singleEvents: "true",
-      orderBy: "startTime",
-      maxResults: "100"
-    });
-    const data = await googleFetch(`/calendars/primary/events?${params}`);
-    return normaliseEvents(data.items || [], "google");
-  }
-  async function createGoogleEvent(title, body, startISO, endISO) {
-    return googleFetch("/calendars/primary/events", {
-      method: "POST",
-      body: JSON.stringify({
-        summary: `\u{1F3AF} ${title}`,
-        description: body,
-        start: { dateTime: startISO, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
-        end: { dateTime: endISO, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
-        colorId: "7"
-      })
-    });
-  }
-  var MS_GRAPH = "https://graph.microsoft.com/v1.0";
-  var MS_SCOPES = ["Calendars.ReadWrite"];
-  var _msalInstance = null;
-  async function getMsal(clientId) {
-    await loadScript("https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js");
-    if (!_msalInstance || _msalInstance.config.auth.clientId !== clientId) {
-      _msalInstance = new window.msal.PublicClientApplication({
-        auth: { clientId, redirectUri: location.origin },
-        cache: { cacheLocation: "localStorage" }
-      });
-      await _msalInstance.initialize();
-    }
-    return _msalInstance;
-  }
-  async function connectOutlook(clientId) {
-    const msal = await getMsal(clientId);
-    const result = await msal.loginPopup({ scopes: MS_SCOPES });
-    state.outlook = { clientId, homeAccountId: result.account.homeAccountId };
-    save(state);
-  }
-  function disconnectOutlook() {
-    delete state.outlook;
-    save(state);
-    _msalInstance = null;
-  }
-  async function getOutlookToken() {
-    if (!state.outlook) return null;
-    const msal = await getMsal(state.outlook.clientId);
-    const accounts = msal.getAllAccounts();
-    const account = accounts.find((a) => a.homeAccountId === state.outlook.homeAccountId) || accounts[0];
-    if (!account) throw new Error("Outlook account not found \u2014 please reconnect.");
-    const result = await msal.acquireTokenSilent({ scopes: MS_SCOPES, account });
-    return result.accessToken;
-  }
-  async function outlookFetch(path, options = {}) {
-    const token = await getOutlookToken();
-    const resp = await fetch(`${MS_GRAPH}${path}`, {
-      ...options,
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...options.headers || {} }
-    });
-    if (!resp.ok) throw new Error(`Graph API error: ${resp.status}`);
-    return resp.json();
-  }
-  async function getOutlookEvents(startISO, endISO) {
-    const params = new URLSearchParams({
-      startDateTime: startISO,
-      endDateTime: endISO,
-      $select: "subject,start,end,isAllDay",
-      $orderby: "start/dateTime",
-      $top: "100"
-    });
-    const data = await outlookFetch(`/me/calendarView?${params}`);
-    return normaliseEvents(data.value || [], "outlook");
-  }
-  async function createOutlookEvent(title, body, startISO, endISO) {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    return outlookFetch("/me/events", {
-      method: "POST",
-      body: JSON.stringify({
-        subject: `\u{1F3AF} ${title}`,
-        body: { contentType: "text", content: body },
-        start: { dateTime: startISO.replace("Z", ""), timeZone: tz },
-        end: { dateTime: endISO.replace("Z", ""), timeZone: tz },
-        categories: ["Focusboard"]
-      })
-    });
-  }
-  function normaliseEvents(items, provider) {
-    return items.filter((e) => provider === "google" ? !!e.start?.dateTime : !e.isAllDay).map((e) => ({
-      id: e.id,
-      title: provider === "google" ? e.summary : e.subject,
-      start: new Date(provider === "google" ? e.start.dateTime : e.start.dateTime).getTime(),
-      end: new Date(provider === "google" ? e.end.dateTime : e.end.dateTime).getTime()
-    }));
-  }
-  async function getEvents(dateStr) {
-    const start = (/* @__PURE__ */ new Date(`${dateStr}T00:00:00`)).toISOString();
-    const end = (/* @__PURE__ */ new Date(`${dateStr}T23:59:59`)).toISOString();
-    if (isGoogleConnected()) return getGoogleEvents(start, end);
-    if (isOutlookConnected()) return getOutlookEvents(start, end);
-    return [];
-  }
-  async function bookFocusBlock(task, startISO, endISO) {
-    const notes = [
-      `Priority: ${task.priority || "\u2014"}`,
-      `Due: ${task.dueDate || "\u2014"}`,
-      `Time needed: ${task.timeNeeded ? Math.round(task.timeNeeded) + " mins" : "\u2014"}`,
-      task.notes ? `
-Notes: ${task.notes}` : ""
-    ].filter(Boolean).join("\n");
-    if (isGoogleConnected()) return createGoogleEvent(task.title, notes, startISO, endISO);
-    if (isOutlookConnected()) return createOutlookEvent(task.title, notes, startISO, endISO);
-    throw new Error("No calendar connected");
-  }
-  async function getGoogleBusyPeriods(startISO, endISO) {
-    let calIds = ["primary"];
-    try {
-      const calList = await googleFetch("/users/me/calendarList?minAccessRole=reader");
-      if (calList.items?.length) calIds = calList.items.map((c) => c.id);
-    } catch {
-    }
-    const results = await Promise.all(calIds.map(async (calId) => {
-      try {
-        const params = new URLSearchParams({
-          timeMin: startISO,
-          timeMax: endISO,
-          singleEvents: "true",
-          maxResults: "100"
-        });
-        const data = await googleFetch(`/calendars/${encodeURIComponent(calId)}/events?${params}`);
-        return (data.items || []).filter((e) => !!e.start?.dateTime).map((e) => ({
-          start: new Date(e.start.dateTime).getTime(),
-          end: new Date(e.end.dateTime).getTime()
-        }));
-      } catch {
-        return [];
-      }
-    }));
-    return results.flat();
-  }
-  async function getOutlookBusyPeriods(startISO, endISO) {
-    const events = await getOutlookEvents(startISO, endISO);
-    return events.map((e) => ({ start: e.start, end: e.end }));
-  }
-  async function getTotalFreeMinutes(dateStr, workStart = "09:30", workEnd = "17:30", bufferMins = 15) {
-    const startISO = (/* @__PURE__ */ new Date(`${dateStr}T00:00:00`)).toISOString();
-    const endISO = (/* @__PURE__ */ new Date(`${dateStr}T23:59:59`)).toISOString();
-    let rawBusy = [];
-    if (isGoogleConnected()) rawBusy = await getGoogleBusyPeriods(startISO, endISO);
-    else if (isOutlookConnected()) rawBusy = await getOutlookBusyPeriods(startISO, endISO);
-    const wsMs = parseLocalTime(dateStr, workStart);
-    const weMs = parseLocalTime(dateStr, workEnd);
-    const bufMs = bufferMins * 6e4;
-    const busy = rawBusy.map((b) => ({ start: b.start - bufMs, end: b.end + bufMs })).sort((a, b) => a.start - b.start);
-    const merged = [];
-    for (const b of busy) {
-      if (merged.length && b.start <= merged[merged.length - 1].end) {
-        merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, b.end);
-      } else {
-        merged.push({ ...b });
-      }
-    }
-    let freeMs = 0;
-    let cursor = wsMs;
-    for (const block of merged) {
-      const bStart = Math.max(block.start, wsMs);
-      const bEnd = Math.min(block.end, weMs);
-      if (bStart > cursor) freeMs += bStart - cursor;
-      if (bEnd > cursor) cursor = bEnd;
-    }
-    if (weMs > cursor) freeMs += weMs - cursor;
-    return Math.round(freeMs / 6e4);
-  }
-  async function getFreeSlots(dateStr, durationMins, workStart = "09:30", workEnd = "17:30", bufferMins = 15) {
-    const startISO = (/* @__PURE__ */ new Date(`${dateStr}T00:00:00`)).toISOString();
-    const endISO = (/* @__PURE__ */ new Date(`${dateStr}T23:59:59`)).toISOString();
-    let rawBusy = [];
-    if (isGoogleConnected()) rawBusy = await getGoogleBusyPeriods(startISO, endISO);
-    else if (isOutlookConnected()) rawBusy = await getOutlookBusyPeriods(startISO, endISO);
-    const wsMs = parseLocalTime(dateStr, workStart);
-    const weMs = parseLocalTime(dateStr, workEnd);
-    const durMs = durationMins * 6e4;
-    const bufMs = bufferMins * 6e4;
-    const busy = rawBusy.map((b) => ({ start: b.start - bufMs, end: b.end + bufMs })).sort((a, b) => a.start - b.start);
-    const merged = [];
-    for (const b of busy) {
-      if (merged.length && b.start <= merged[merged.length - 1].end) {
-        merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, b.end);
-      } else {
-        merged.push({ ...b });
-      }
-    }
-    const slots = [];
-    let cursor = wsMs;
-    for (const block of merged) {
-      if (block.start > cursor && block.start - cursor >= durMs) {
-        collectSlots(slots, cursor, block.start, durMs);
-      }
-      cursor = Math.max(cursor, block.end);
-    }
-    if (weMs - cursor >= durMs) collectSlots(slots, cursor, weMs, durMs);
-    return slots;
-  }
-  function parseLocalTime(dateStr, hhmm2) {
-    return (/* @__PURE__ */ new Date(`${dateStr}T${hhmm2}:00`)).getTime();
-  }
-  function collectSlots(slots, from, to, durMs) {
-    const step = 15 * 6e4;
-    let t = Math.ceil(from / step) * step;
-    while (t + durMs <= to) {
-      const s = new Date(t);
-      const e = new Date(t + durMs);
-      slots.push({
-        startMs: t,
-        endMs: t + durMs,
-        startISO: s.toISOString(),
-        endISO: e.toISOString(),
-        label: `${fmt(s)} \u2013 ${fmt(e)}`
-      });
-      t += step;
-    }
-  }
-  function fmt(d) {
-    return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  }
-
   // node_modules/tslib/tslib.es6.mjs
   function __rest(s, e) {
     var t = {};
@@ -20807,10 +20419,19 @@ ${suffix}`;
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        // Works for both localhost and the deployed GitHub Pages URL
-        redirectTo: window.location.href.split("#")[0].split("?")[0]
+        redirectTo: window.location.href.split("#")[0].split("?")[0],
+        // Request calendar access alongside identity — no separate OAuth needed
+        scopes: "https://www.googleapis.com/auth/calendar",
+        queryParams: { access_type: "offline", prompt: "consent" }
       }
     });
+  }
+  async function getGoogleProviderToken() {
+    if (!supabase) return null;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.provider_token) return session.provider_token;
+    const { data: { session: fresh } } = await supabase.auth.refreshSession();
+    return fresh?.provider_token ?? null;
   }
   async function signOut() {
     if (!supabase) return;
@@ -20838,6 +20459,418 @@ ${suffix}`;
       { onConflict: "user_id" }
     );
     if (error) console.error("[supabase] saveBoard:", error.message);
+  }
+
+  // src/js/services/calendar.js
+  var CAL_KEY = "focusboard_calendar";
+  function load() {
+    try {
+      return JSON.parse(localStorage.getItem(CAL_KEY) || "{}");
+    } catch {
+      return {};
+    }
+  }
+  function save(s) {
+    try {
+      localStorage.setItem(CAL_KEY, JSON.stringify(s));
+    } catch {
+    }
+  }
+  var state = load();
+  function isGoogleConnected() {
+    return !!(state.google?.accessToken || state.google?.refreshToken || state.googleViaSupabase);
+  }
+  function isGoogleViaSupabase() {
+    return !!state.googleViaSupabase;
+  }
+  function isOutlookConnected() {
+    return !!state.outlook?.clientId;
+  }
+  function isAnyConnected() {
+    return isGoogleConnected() || isOutlookConnected();
+  }
+  function setGoogleFromSupabase(accessToken, expiresAt2) {
+    if (!accessToken) return;
+    state.googleViaSupabase = { accessToken, expiresAt: expiresAt2 };
+    save(state);
+  }
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      if (document.querySelector(`script[src="${src}"]`)) return resolve();
+      const s = document.createElement("script");
+      s.src = src;
+      s.async = true;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error(`Failed to load ${src}`));
+      document.head.appendChild(s);
+    });
+  }
+  function randomBase64url(bytes = 48) {
+    const arr = new Uint8Array(bytes);
+    crypto.getRandomValues(arr);
+    return btoa(String.fromCharCode(...arr)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+  }
+  async function sha256Base64url(str) {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+    return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+  }
+  var GOOGLE_CAL_BASE = "https://www.googleapis.com/calendar/v3";
+  var GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+  var GOOGLE_CAL_SCOPE = "https://www.googleapis.com/auth/calendar";
+  async function connectGoogle(clientId, clientSecret) {
+    const verifier = randomBase64url(48);
+    const challenge = await sha256Base64url(verifier);
+    const stateParam = randomBase64url(16);
+    const redirectUri = location.origin;
+    const authUrl = "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: GOOGLE_CAL_SCOPE,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      access_type: "offline",
+      prompt: "consent",
+      state: stateParam
+    });
+    const popup = window.open(authUrl, "_blank", "width=520,height=640,left=300,top=100");
+    if (!popup) throw new Error("Popup was blocked \u2014 please allow popups for this site and try again.");
+    const code = await new Promise((resolve, reject) => {
+      const timer = setInterval(() => {
+        try {
+          if (popup.closed) {
+            clearInterval(timer);
+            reject(new Error("Sign-in window was closed \u2014 please try again."));
+            return;
+          }
+          const url = new URL(popup.location.href);
+          if (url.origin !== location.origin) return;
+          clearInterval(timer);
+          popup.close();
+          const err = url.searchParams.get("error");
+          if (err) return reject(new Error(err === "access_denied" ? "Access was denied." : err));
+          const returnedState = url.searchParams.get("state");
+          if (returnedState !== stateParam) return reject(new Error("State mismatch \u2014 please try again."));
+          const c = url.searchParams.get("code");
+          if (!c) return reject(new Error("No authorisation code received."));
+          resolve(c);
+        } catch {
+        }
+      }, 250);
+      setTimeout(() => {
+        clearInterval(timer);
+        if (!popup.closed) popup.close();
+        reject(new Error("Sign-in timed out."));
+      }, 5 * 6e4);
+    });
+    const resp = await fetch(GOOGLE_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: clientId,
+        ...clientSecret ? { client_secret: clientSecret } : {},
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code",
+        code_verifier: verifier
+      })
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error_description || err.error || `Token exchange failed (${resp.status})`);
+    }
+    const tokens = await resp.json();
+    state.google = {
+      clientId,
+      clientSecret: clientSecret || null,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresAt: Date.now() + (tokens.expires_in - 60) * 1e3
+    };
+    save(state);
+  }
+  function disconnectGoogle() {
+    if (state.google?.accessToken) {
+      fetch(`https://oauth2.googleapis.com/revoke?token=${state.google.accessToken}`, { method: "POST" }).catch(() => {
+      });
+    }
+    delete state.google;
+    delete state.googleViaSupabase;
+    save(state);
+  }
+  async function getGoogleToken() {
+    if (state.googleViaSupabase) {
+      if (Date.now() < state.googleViaSupabase.expiresAt - 6e4) {
+        return state.googleViaSupabase.accessToken;
+      }
+      const fresh = await getGoogleProviderToken();
+      if (fresh) {
+        state.googleViaSupabase.accessToken = fresh;
+        state.googleViaSupabase.expiresAt = Date.now() + 55 * 6e4;
+        save(state);
+        return fresh;
+      }
+      delete state.googleViaSupabase;
+      save(state);
+      return null;
+    }
+    if (!state.google) return null;
+    if (Date.now() < state.google.expiresAt) return state.google.accessToken;
+    if (!state.google.refreshToken) throw new Error("Google Calendar session expired \u2014 please reconnect.");
+    const resp = await fetch(GOOGLE_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: state.google.clientId,
+        ...state.google.clientSecret ? { client_secret: state.google.clientSecret } : {},
+        grant_type: "refresh_token",
+        refresh_token: state.google.refreshToken
+      })
+    });
+    if (!resp.ok) throw new Error("Google token refresh failed \u2014 please reconnect.");
+    const tokens = await resp.json();
+    state.google.accessToken = tokens.access_token;
+    state.google.expiresAt = Date.now() + (tokens.expires_in - 60) * 1e3;
+    save(state);
+    return state.google.accessToken;
+  }
+  async function googleFetch(path, options = {}) {
+    const token = await getGoogleToken();
+    if (!token) throw new Error("Google Calendar not connected");
+    const resp = await fetch(`${GOOGLE_CAL_BASE}${path}`, {
+      ...options,
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...options.headers || {} }
+    });
+    if (!resp.ok) throw new Error(`Google API error: ${resp.status}`);
+    return resp.json();
+  }
+  async function getGoogleEvents(startISO, endISO) {
+    const params = new URLSearchParams({
+      timeMin: startISO,
+      timeMax: endISO,
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: "100"
+    });
+    const data = await googleFetch(`/calendars/primary/events?${params}`);
+    return normaliseEvents(data.items || [], "google");
+  }
+  async function createGoogleEvent(title, body, startISO, endISO) {
+    return googleFetch("/calendars/primary/events", {
+      method: "POST",
+      body: JSON.stringify({
+        summary: `\u{1F3AF} ${title}`,
+        description: body,
+        start: { dateTime: startISO, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+        end: { dateTime: endISO, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+        colorId: "7"
+      })
+    });
+  }
+  var MS_GRAPH = "https://graph.microsoft.com/v1.0";
+  var MS_SCOPES = ["Calendars.ReadWrite"];
+  var _msalInstance = null;
+  async function getMsal(clientId) {
+    await loadScript("https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js");
+    if (!_msalInstance || _msalInstance.config.auth.clientId !== clientId) {
+      _msalInstance = new window.msal.PublicClientApplication({
+        auth: { clientId, redirectUri: location.origin },
+        cache: { cacheLocation: "localStorage" }
+      });
+      await _msalInstance.initialize();
+    }
+    return _msalInstance;
+  }
+  async function connectOutlook(clientId) {
+    const msal = await getMsal(clientId);
+    const result = await msal.loginPopup({ scopes: MS_SCOPES });
+    state.outlook = { clientId, homeAccountId: result.account.homeAccountId };
+    save(state);
+  }
+  function disconnectOutlook() {
+    delete state.outlook;
+    save(state);
+    _msalInstance = null;
+  }
+  async function getOutlookToken() {
+    if (!state.outlook) return null;
+    const msal = await getMsal(state.outlook.clientId);
+    const accounts = msal.getAllAccounts();
+    const account = accounts.find((a) => a.homeAccountId === state.outlook.homeAccountId) || accounts[0];
+    if (!account) throw new Error("Outlook account not found \u2014 please reconnect.");
+    const result = await msal.acquireTokenSilent({ scopes: MS_SCOPES, account });
+    return result.accessToken;
+  }
+  async function outlookFetch(path, options = {}) {
+    const token = await getOutlookToken();
+    const resp = await fetch(`${MS_GRAPH}${path}`, {
+      ...options,
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...options.headers || {} }
+    });
+    if (!resp.ok) throw new Error(`Graph API error: ${resp.status}`);
+    return resp.json();
+  }
+  async function getOutlookEvents(startISO, endISO) {
+    const params = new URLSearchParams({
+      startDateTime: startISO,
+      endDateTime: endISO,
+      $select: "subject,start,end,isAllDay",
+      $orderby: "start/dateTime",
+      $top: "100"
+    });
+    const data = await outlookFetch(`/me/calendarView?${params}`);
+    return normaliseEvents(data.value || [], "outlook");
+  }
+  async function createOutlookEvent(title, body, startISO, endISO) {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return outlookFetch("/me/events", {
+      method: "POST",
+      body: JSON.stringify({
+        subject: `\u{1F3AF} ${title}`,
+        body: { contentType: "text", content: body },
+        start: { dateTime: startISO.replace("Z", ""), timeZone: tz },
+        end: { dateTime: endISO.replace("Z", ""), timeZone: tz },
+        categories: ["Focusboard"]
+      })
+    });
+  }
+  function normaliseEvents(items, provider) {
+    return items.filter((e) => provider === "google" ? !!e.start?.dateTime : !e.isAllDay).map((e) => ({
+      id: e.id,
+      title: provider === "google" ? e.summary : e.subject,
+      start: new Date(provider === "google" ? e.start.dateTime : e.start.dateTime).getTime(),
+      end: new Date(provider === "google" ? e.end.dateTime : e.end.dateTime).getTime()
+    }));
+  }
+  async function getEvents(dateStr) {
+    const start = (/* @__PURE__ */ new Date(`${dateStr}T00:00:00`)).toISOString();
+    const end = (/* @__PURE__ */ new Date(`${dateStr}T23:59:59`)).toISOString();
+    if (isGoogleConnected()) return getGoogleEvents(start, end);
+    if (isOutlookConnected()) return getOutlookEvents(start, end);
+    return [];
+  }
+  async function bookFocusBlock(task, startISO, endISO) {
+    const notes = [
+      `Priority: ${task.priority || "\u2014"}`,
+      `Due: ${task.dueDate || "\u2014"}`,
+      `Time needed: ${task.timeNeeded ? Math.round(task.timeNeeded) + " mins" : "\u2014"}`,
+      task.notes ? `
+Notes: ${task.notes}` : ""
+    ].filter(Boolean).join("\n");
+    if (isGoogleConnected()) return createGoogleEvent(task.title, notes, startISO, endISO);
+    if (isOutlookConnected()) return createOutlookEvent(task.title, notes, startISO, endISO);
+    throw new Error("No calendar connected");
+  }
+  async function getGoogleBusyPeriods(startISO, endISO) {
+    let calIds = ["primary"];
+    try {
+      const calList = await googleFetch("/users/me/calendarList?minAccessRole=reader");
+      if (calList.items?.length) calIds = calList.items.map((c) => c.id);
+    } catch {
+    }
+    const results = await Promise.all(calIds.map(async (calId) => {
+      try {
+        const params = new URLSearchParams({
+          timeMin: startISO,
+          timeMax: endISO,
+          singleEvents: "true",
+          maxResults: "100"
+        });
+        const data = await googleFetch(`/calendars/${encodeURIComponent(calId)}/events?${params}`);
+        return (data.items || []).filter((e) => !!e.start?.dateTime).map((e) => ({
+          start: new Date(e.start.dateTime).getTime(),
+          end: new Date(e.end.dateTime).getTime()
+        }));
+      } catch {
+        return [];
+      }
+    }));
+    return results.flat();
+  }
+  async function getOutlookBusyPeriods(startISO, endISO) {
+    const events = await getOutlookEvents(startISO, endISO);
+    return events.map((e) => ({ start: e.start, end: e.end }));
+  }
+  async function getTotalFreeMinutes(dateStr, workStart = "09:30", workEnd = "17:30", bufferMins = 15) {
+    const startISO = (/* @__PURE__ */ new Date(`${dateStr}T00:00:00`)).toISOString();
+    const endISO = (/* @__PURE__ */ new Date(`${dateStr}T23:59:59`)).toISOString();
+    let rawBusy = [];
+    if (isGoogleConnected()) rawBusy = await getGoogleBusyPeriods(startISO, endISO);
+    else if (isOutlookConnected()) rawBusy = await getOutlookBusyPeriods(startISO, endISO);
+    const wsMs = parseLocalTime(dateStr, workStart);
+    const weMs = parseLocalTime(dateStr, workEnd);
+    const bufMs = bufferMins * 6e4;
+    const busy = rawBusy.map((b) => ({ start: b.start - bufMs, end: b.end + bufMs })).sort((a, b) => a.start - b.start);
+    const merged = [];
+    for (const b of busy) {
+      if (merged.length && b.start <= merged[merged.length - 1].end) {
+        merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, b.end);
+      } else {
+        merged.push({ ...b });
+      }
+    }
+    let freeMs = 0;
+    let cursor = wsMs;
+    for (const block of merged) {
+      const bStart = Math.max(block.start, wsMs);
+      const bEnd = Math.min(block.end, weMs);
+      if (bStart > cursor) freeMs += bStart - cursor;
+      if (bEnd > cursor) cursor = bEnd;
+    }
+    if (weMs > cursor) freeMs += weMs - cursor;
+    return Math.round(freeMs / 6e4);
+  }
+  async function getFreeSlots(dateStr, durationMins, workStart = "09:30", workEnd = "17:30", bufferMins = 15) {
+    const startISO = (/* @__PURE__ */ new Date(`${dateStr}T00:00:00`)).toISOString();
+    const endISO = (/* @__PURE__ */ new Date(`${dateStr}T23:59:59`)).toISOString();
+    let rawBusy = [];
+    if (isGoogleConnected()) rawBusy = await getGoogleBusyPeriods(startISO, endISO);
+    else if (isOutlookConnected()) rawBusy = await getOutlookBusyPeriods(startISO, endISO);
+    const wsMs = parseLocalTime(dateStr, workStart);
+    const weMs = parseLocalTime(dateStr, workEnd);
+    const durMs = durationMins * 6e4;
+    const bufMs = bufferMins * 6e4;
+    const busy = rawBusy.map((b) => ({ start: b.start - bufMs, end: b.end + bufMs })).sort((a, b) => a.start - b.start);
+    const merged = [];
+    for (const b of busy) {
+      if (merged.length && b.start <= merged[merged.length - 1].end) {
+        merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, b.end);
+      } else {
+        merged.push({ ...b });
+      }
+    }
+    const slots = [];
+    let cursor = wsMs;
+    for (const block of merged) {
+      if (block.start > cursor && block.start - cursor >= durMs) {
+        collectSlots(slots, cursor, block.start, durMs);
+      }
+      cursor = Math.max(cursor, block.end);
+    }
+    if (weMs - cursor >= durMs) collectSlots(slots, cursor, weMs, durMs);
+    return slots;
+  }
+  function parseLocalTime(dateStr, hhmm2) {
+    return (/* @__PURE__ */ new Date(`${dateStr}T${hhmm2}:00`)).getTime();
+  }
+  function collectSlots(slots, from, to, durMs) {
+    const step = 15 * 6e4;
+    let t = Math.ceil(from / step) * step;
+    while (t + durMs <= to) {
+      const s = new Date(t);
+      const e = new Date(t + durMs);
+      slots.push({
+        startMs: t,
+        endMs: t + durMs,
+        startISO: s.toISOString(),
+        endISO: e.toISOString(),
+        label: `${fmt(s)} \u2013 ${fmt(e)}`
+      });
+      t += step;
+    }
+  }
+  function fmt(d) {
+    return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   }
 
   // src/js/store.js
@@ -21772,8 +21805,16 @@ ${suffix}`;
     );
     function buildCalConnect(provider, label, logoColor) {
       const isConnected = provider === "google" ? isGoogleConnected() : isOutlookConnected();
-      const statusEl = h("div", { class: "cal-status" });
+      const viaSupabase = provider === "google" && isGoogleViaSupabase();
       if (isConnected) {
+        if (viaSupabase) {
+          return h(
+            "div",
+            { class: "cal-connected-badge" },
+            h("span", { class: "cal-dot connected" }),
+            "Connected via your Google account"
+          );
+        }
         const disconnectBtn = h("button", { class: "btn-cal-disconnect" }, "Disconnect");
         disconnectBtn.addEventListener("click", () => {
           if (provider === "google") disconnectGoogle();
@@ -21794,6 +21835,23 @@ ${suffix}`;
           disconnectBtn
         );
       }
+      if (provider === "google" && isSupabaseConfigured()) {
+        const statusEl2 = h("div", { class: "cal-status" });
+        const reconnectBtn = h("button", { class: "btn-cal-connect", style: { background: logoColor } }, "Connect Google Calendar");
+        reconnectBtn.addEventListener("click", async () => {
+          reconnectBtn.disabled = true;
+          reconnectBtn.textContent = "Redirecting\u2026";
+          await signInWithGoogle();
+        });
+        return h(
+          "div",
+          { class: "cal-connect-col" },
+          h("p", { class: "cal-provider-hint" }, "Grant calendar access by signing in again \u2014 takes one click."),
+          reconnectBtn,
+          statusEl2
+        );
+      }
+      const statusEl = h("div", { class: "cal-status" });
       let clientId = "";
       let clientSecret = "";
       const input = h("input", {
@@ -22491,6 +22549,7 @@ ${suffix}`;
       statusEl.textContent = "Booking\u2026";
       try {
         await bookFocusBlock(task, slot.startISO, slot.endISO);
+        document.dispatchEvent(new CustomEvent("focusboard:focus-booked"));
         const sessionData = {
           day: start.toLocaleDateString("en-GB", { weekday: "short" }),
           date: slot.startISO.slice(0, 10),
@@ -23789,7 +23848,7 @@ ${suffix}`;
     const expanded = !!S.expandedCards[item.id];
     const editing = S.editingCards[item.id];
     const overdue = isOverdue(item.dueDate) && !item.done;
-    const draggable = S.view === "category";
+    const draggable = S.view === "category" && S.filter === "all";
     const expandBtn = h(
       "button",
       { class: `expand-btn${expanded ? " open" : ""}`, onClick: (e) => {
@@ -24053,9 +24112,12 @@ ${suffix}`;
     updateNowLine();
     loadAll();
     const nowTimer = setInterval(updateNowLine, 6e4);
+    const onBooked = () => loadAll();
+    document.addEventListener("focusboard:focus-booked", onBooked);
     const observer = new MutationObserver(() => {
       if (!document.body.contains(scrollWrap)) {
         clearInterval(nowTimer);
+        document.removeEventListener("focusboard:focus-booked", onBooked);
         observer.disconnect();
       }
     });
@@ -24674,6 +24736,10 @@ ${suffix}`;
     onAuthStateChange(async (event, session) => {
       if (session?.user && !S.userId) {
         await initFromSupabase(session.user.id);
+        if (session.provider_token) {
+          const expiresAt2 = session.expires_at ? session.expires_at * 1e3 : Date.now() + 55 * 6e4;
+          setGoogleFromSupabase(session.provider_token, expiresAt2);
+        }
         loadCalFreeMinutes();
       } else if (!session?.user && S.userId) {
         S.userId = null;

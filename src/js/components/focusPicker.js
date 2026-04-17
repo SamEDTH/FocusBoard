@@ -176,6 +176,7 @@ export function buildFocusPicker(task, onClose) {
 
     try {
       await bookFocusBlock(task, slot.startISO, slot.endISO);
+      document.dispatchEvent(new CustomEvent('focusboard:focus-booked'));
       const sessionData = {
         day:      start.toLocaleDateString('en-GB', { weekday: 'short' }),
         date:     slot.startISO.slice(0, 10),

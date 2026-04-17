@@ -1,10 +1,10 @@
 import { S, set, toggleTheme, toggleSystemTheme, updateWorkingHours, updateFocusDefaults, updateFollowUpDays, loadCalFreeMinutes } from '../store.js';
 import { isPasswordProtected, lockApp } from './passwordGate.js';
-import { isSupabaseConfigured, signOut } from '../services/supabase.js';
+import { isSupabaseConfigured, signOut, signInWithGoogle } from '../services/supabase.js';
 import { S as AppS } from '../store.js';
 import { h } from '../dom.js';
 import {
-  connectGoogle, disconnectGoogle, isGoogleConnected,
+  connectGoogle, disconnectGoogle, isGoogleConnected, isGoogleViaSupabase,
   connectOutlook, disconnectOutlook, isOutlookConnected,
 } from '../services/calendar.js';
 
@@ -38,16 +38,26 @@ export function buildSettings() {
 
   function buildCalConnect(provider, label, logoColor) {
     const isConnected = provider === 'google' ? isGoogleConnected() : isOutlookConnected();
-    const statusEl = h('div', { class: 'cal-status' });
+    const viaSupabase = provider === 'google' && isGoogleViaSupabase();
 
+    // ── Connected ────────────────────────────────────────────────────────────
     if (isConnected) {
+      // Auto-connected via Google sign-in — no disconnect (tied to their account)
+      if (viaSupabase) {
+        return h('div', { class: 'cal-connected-badge' },
+          h('span', { class: 'cal-dot connected' }),
+          'Connected via your Google account',
+        );
+      }
+
+      // Manually connected — allow disconnect
       const disconnectBtn = h('button', { class: 'btn-cal-disconnect' }, 'Disconnect');
       disconnectBtn.addEventListener('click', () => {
         if (provider === 'google') disconnectGoogle();
         else disconnectOutlook();
         loadCalFreeMinutes();
         set({ showSettings: false });
-        set({ showSettings: true }); // re-render settings
+        set({ showSettings: true });
       });
       return h('div', { class: 'cal-connect-row' },
         h('div', { class: 'cal-connected-badge' },
@@ -58,7 +68,24 @@ export function buildSettings() {
       );
     }
 
-    // Not connected — show client ID input + connect button
+    // ── Not connected — Google via Supabase (user signed in but no calendar scope yet) ──
+    if (provider === 'google' && isSupabaseConfigured()) {
+      const statusEl = h('div', { class: 'cal-status' });
+      const reconnectBtn = h('button', { class: 'btn-cal-connect', style: { background: logoColor } }, 'Connect Google Calendar');
+      reconnectBtn.addEventListener('click', async () => {
+        reconnectBtn.disabled = true;
+        reconnectBtn.textContent = 'Redirecting…';
+        await signInWithGoogle(); // re-auth with calendar scope
+      });
+      return h('div', { class: 'cal-connect-col' },
+        h('p', { class: 'cal-provider-hint' }, 'Grant calendar access by signing in again — takes one click.'),
+        reconnectBtn,
+        statusEl,
+      );
+    }
+
+    // ── Not connected — manual PKCE flow (non-Supabase builds) ───────────────
+    const statusEl = h('div', { class: 'cal-status' });
     let clientId = '';
     let clientSecret = '';
     const input = h('input', {

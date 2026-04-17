@@ -27,10 +27,23 @@ export async function signInWithGoogle() {
   await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      // Works for both localhost and the deployed GitHub Pages URL
       redirectTo: window.location.href.split('#')[0].split('?')[0],
+      // Request calendar access alongside identity — no separate OAuth needed
+      scopes: 'https://www.googleapis.com/auth/calendar',
+      queryParams: { access_type: 'offline', prompt: 'consent' },
     },
   });
+}
+
+/** Returns the Google access token from the current Supabase session.
+ *  Triggers a session refresh if the stored token looks stale. */
+export async function getGoogleProviderToken() {
+  if (!supabase) return null;
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.provider_token) return session.provider_token;
+  // Token missing — refresh the Supabase session to get a new one
+  const { data: { session: fresh } } = await supabase.auth.refreshSession();
+  return fresh?.provider_token ?? null;
 }
 
 export async function signOut() {
