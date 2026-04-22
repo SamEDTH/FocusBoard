@@ -85,5 +85,5 @@ export async function saveBoard(userId, boardData) {
       { user_id: userId, data: boardData, updated_at: new Date().toISOString() },
       { onConflict: 'user_id' },
     );
-  if (error) console.error('[supabase] saveBoard:', error.message);
+  if (error) throw new Error(error.message);
 }

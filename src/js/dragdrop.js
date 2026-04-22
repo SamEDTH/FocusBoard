@@ -157,8 +157,12 @@ export function onDrop(e, targetId, targetCatId) {
 
   // Set before upd() so buildCard reads it during the triggered re-render
   lastDroppedId = droppedId;
-  upd(newData);
-  setTimeout(() => { lastDroppedId = null; }, 700);
+  try {
+    upd(newData);
+    setTimeout(() => { lastDroppedId = null; }, 700);
+  } catch {
+    lastDroppedId = null;
+  }
 }
 
 /** Drop on a sidebar category: move item to that category without reordering. */
@@ -176,6 +180,10 @@ export function onDropCat(e, catId) {
   if (idx >= 0) items[idx].categoryId = catId;
 
   lastDroppedId = droppedId;
-  upd(newData);
-  setTimeout(() => { lastDroppedId = null; }, 700);
+  try {
+    upd(newData);
+    setTimeout(() => { lastDroppedId = null; }, 700);
+  } catch {
+    lastDroppedId = null;
+  }
 }

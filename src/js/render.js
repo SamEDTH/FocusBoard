@@ -16,6 +16,7 @@ import { buildCalendarView } from './components/calendarView.js';
 // Saved across renders so typing into the search bar doesn't lose the caret.
 let _searchWasFocused = false;
 let _searchCaretPos   = 0;
+let _searchRenderTimer = null;
 
 // ── Topbar ────────────────────────────────────────────────────────────────────
 
@@ -27,8 +28,13 @@ function buildTopbar() {
     value: S.searchQuery || '',
     onFocus:   () => { _searchWasFocused = true; },
     onBlur:    () => { _searchWasFocused = false; },
-    onInput:   e  => { _searchCaretPos = e.target.selectionStart; set({ searchQuery: e.target.value }); },
-    onKeydown: e  => { if (e.key === 'Escape') { _searchWasFocused = false; set({ searchQuery: '' }); } },
+    onInput:   e  => {
+      _searchCaretPos = e.target.selectionStart;
+      S.searchQuery = e.target.value;         // update state immediately (no render)
+      clearTimeout(_searchRenderTimer);
+      _searchRenderTimer = setTimeout(() => render(), 150); // debounced render
+    },
+    onKeydown: e  => { if (e.key === 'Escape') { _searchWasFocused = false; clearTimeout(_searchRenderTimer); set({ searchQuery: '' }); } },
   });
 
   const clearBtn = S.searchQuery
@@ -53,6 +59,12 @@ function buildTopbar() {
       clearBtn,
     ),
     h('div', { class: 'topbar-right' },
+      S.syncError
+        ? h('span', { class: 'sync-error-badge', title: S.syncError }, '⚠ Sync failed')
+        : null,
+      S.calError
+        ? h('span', { class: 'sync-error-badge', title: S.calError }, '⚠ Calendar')
+        : null,
       h('button', { class: 'btn', onClick: () => set({ showSettings: true }) }, '⚙ Settings'),
       h('button', {
         class: `btn btn-primary${S.showAddItem ? ' active' : ''}`,

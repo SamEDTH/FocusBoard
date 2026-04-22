@@ -127,7 +127,9 @@ body.light {
   color: var(--text);
 }
 .topbar-logo-img { height: 30px; width: auto; display: block; user-select: none; }
-.topbar-right { display: flex; gap: 8px; }
+.topbar-right { display: flex; align-items: center; gap: 8px; }
+.sync-error-badge { font-size: 12px; font-weight: 600; color: #c0392b; background: rgba(192,57,43,0.1); border: 1px solid rgba(192,57,43,0.3); border-radius: 7px; padding: 4px 10px; white-space: nowrap; cursor: default; }
+body.dark .sync-error-badge { color: #ff6b6b; background: rgba(255,107,107,0.1); border-color: rgba(255,107,107,0.3); }
 
 .topbar-search {
   display: flex; align-items: center; flex: 1; max-width: 400px; margin: 0 16px;
@@ -695,6 +697,8 @@ body.light .pg-input:focus { box-shadow: 0 0 0 3px rgba(74,127,255,0.12); }
 .pg-error { font-size: 12px; color: var(--error); margin: 0; min-height: 16px; text-align: center; }
 .btn-lock { padding: 6px 14px; border: 1px solid var(--border2); border-radius: 8px; background: var(--surface2); color: var(--text); font-size: 13px; cursor: pointer; }
 .btn-lock:hover { background: var(--surface3); }
+.btn-reset-board { color: var(--error); border-color: var(--error); }
+.btn-reset-board:hover { background: rgba(192,57,43,0.08); }
 .settings-lock-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; margin-top: 4px; }
 
 /* ══════════════════════════════════════════════

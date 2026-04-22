@@ -120,6 +120,15 @@ export function buildAddForm() {
       S.addItemForm.chaseDate = auto;
       chaseDateEl.value = auto;
     });
+    // Validate: chase date must be before target return date
+    chaseDateEl.addEventListener('change', e => {
+      const target = S.addItemForm.targetReturnDate;
+      if (target && e.target.value && e.target.value >= target) {
+        const fallback = computeChaseDate(target, S.followUpDays);
+        e.target.value = fallback;
+        S.addItemForm.chaseDate = fallback;
+      }
+    });
 
     const taskFieldGrid = isWaiting
       ? h('div', { class: 'form-grid' },

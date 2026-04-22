@@ -20458,7 +20458,7 @@ ${suffix}`;
       { user_id: userId, data: boardData, updated_at: (/* @__PURE__ */ new Date()).toISOString() },
       { onConflict: "user_id" }
     );
-    if (error) console.error("[supabase] saveBoard:", error.message);
+    if (error) throw new Error(error.message);
   }
 
   // src/js/services/calendar.js
@@ -20961,11 +20961,15 @@ Notes: ${task.notes}` : ""
     followUpDays: savedSettings.followUpDays ?? 5,
     calFreeMinutes: null,
     // total free working-hour minutes today (null = not loaded / no calendar)
+    calError: null,
+    // non-null when calendar token refresh failed — prompts reconnect
     // Supabase auth + sync
     userId: null,
     // logged-in user id; null = not signed in or Supabase not configured
-    loading: false
+    loading: false,
     // true while fetching board data from Supabase on sign-in
+    syncError: null
+    // non-null string when the last Supabase write failed
   };
   if (S.useSystemTheme) systemMediaQuery.addEventListener("change", applySystemTheme);
   async function loadCalFreeMinutes() {
@@ -20980,9 +20984,15 @@ Notes: ${task.notes}` : ""
     const dateStr = [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-");
     try {
       S.calFreeMinutes = await getTotalFreeMinutes(dateStr, S.workStart, S.workEnd);
+      if (S.calError) S.calError = null;
       renderFn();
-    } catch {
+    } catch (err) {
       S.calFreeMinutes = null;
+      const msg = err?.message || "";
+      if (msg.includes("not connected") || msg.includes("expired") || msg.includes("refresh")) {
+        S.calError = "Calendar disconnected \u2014 reconnect in Settings";
+        renderFn();
+      }
     }
   }
   function set(patch) {
@@ -20993,7 +21003,18 @@ Notes: ${task.notes}` : ""
   function scheduleSbSave(data) {
     if (!isSupabaseConfigured() || !S.userId) return;
     clearTimeout(_sbSaveTimer);
-    _sbSaveTimer = setTimeout(() => saveBoard(S.userId, data), 1e3);
+    _sbSaveTimer = setTimeout(async () => {
+      try {
+        await saveBoard(S.userId, data);
+        if (S.syncError) {
+          S.syncError = null;
+          renderFn();
+        }
+      } catch (e) {
+        S.syncError = e.message || "Sync failed \u2014 changes saved locally";
+        renderFn();
+      }
+    }, 1e3);
   }
   function upd(newData) {
     S.data = newData;
@@ -21005,10 +21026,13 @@ Notes: ${task.notes}` : ""
     S.userId = userId;
     S.loading = true;
     renderFn();
+    const dataAtStart = S.data;
     try {
       const withTimeout = (promise, ms) => Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
       const remote = await withTimeout(loadBoard(userId), 1e4);
-      if (remote) {
+      if (S.data !== dataAtStart) {
+        saveBoard(userId, S.data).catch((e) => console.warn("[supabase] post-init save failed:", e.message));
+      } else if (remote) {
         S.data = remote;
         saveData(remote);
       } else {
@@ -21035,7 +21059,7 @@ Notes: ${task.notes}` : ""
           return null;
         }
       })();
-      if (local) S.data = local;
+      if (local && S.data === dataAtStart) S.data = local;
     }
     S.loading = false;
     renderFn();
@@ -21166,14 +21190,20 @@ Notes: ${task.notes}` : ""
       items[idx].doneAt = items[idx].done ? (/* @__PURE__ */ new Date()).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : void 0;
       items[idx].doneDate = items[idx].done ? TODAY : void 0;
       if (items[idx].done && items[idx].recurrence) {
-        const next = JSON.parse(JSON.stringify(items[idx]));
-        next.id = uid();
-        next.done = false;
-        next.doneAt = void 0;
-        next.doneDate = void 0;
-        next.dueDate = nextRecurringDueDate(items[idx].dueDate, items[idx].recurrence);
-        next.focusSessions = [];
-        items.push(next);
+        const nextDue = nextRecurringDueDate(items[idx].dueDate, items[idx].recurrence);
+        const alreadyExists = items.some(
+          (i) => !i.done && i.title === items[idx].title && i.recurrence === items[idx].recurrence && i.dueDate === nextDue
+        );
+        if (!alreadyExists) {
+          const next = JSON.parse(JSON.stringify(items[idx]));
+          next.id = uid();
+          next.done = false;
+          next.doneAt = void 0;
+          next.doneDate = void 0;
+          next.dueDate = nextDue;
+          next.focusSessions = [];
+          items.push(next);
+        }
       }
     }
     upd(newData);
@@ -21289,6 +21319,12 @@ Notes: ${task.notes}` : ""
     }
     S.editingCat = null;
     upd(newData);
+  }
+  function resetToDefault() {
+    S.data = JSON.parse(JSON.stringify(DEFAULT));
+    saveData(S.data);
+    scheduleSbSave(S.data);
+    renderFn();
   }
   function addCategory(name) {
     const newData = JSON.parse(JSON.stringify(S.data));
@@ -21693,6 +21729,14 @@ Notes: ${task.notes}` : ""
         S.addItemForm.chaseDate = auto;
         chaseDateEl.value = auto;
       });
+      chaseDateEl.addEventListener("change", (e) => {
+        const target = S.addItemForm.targetReturnDate;
+        if (target && e.target.value && e.target.value >= target) {
+          const fallback = computeChaseDate(target, S.followUpDays);
+          e.target.value = fallback;
+          S.addItemForm.chaseDate = fallback;
+        }
+      });
       const taskFieldGrid = isWaiting ? h(
         "div",
         { class: "form-grid" },
@@ -22006,6 +22050,26 @@ Notes: ${task.notes}` : ""
           inp.addEventListener("change", (e) => updateFollowUpDays(Math.max(1, parseInt(e.target.value) || 5)));
           return h("div", { class: "wh-row" }, inp, h("span", { class: "wh-sep" }, "days"));
         })()),
+        h("div", { class: "settings-section-heading" }, "Data"),
+        h(
+          "div",
+          { class: "settings-lock-row" },
+          h(
+            "div",
+            null,
+            h("div", { class: "settings-row-label" }, "Reset board"),
+            h("div", { class: "settings-row-sub" }, "Replace all tasks with the demo data")
+          ),
+          h("button", {
+            class: "btn-lock btn-reset-board",
+            onClick: () => {
+              if (window.confirm("Reset everything to demo data? This cannot be undone.")) {
+                set({ showSettings: false });
+                resetToDefault();
+              }
+            }
+          }, "Reset")
+        ),
         // Sign out — shown when using Supabase auth
         isSupabaseConfigured() && S.userId ? h(
           "div",
@@ -22177,10 +22241,14 @@ Notes: ${task.notes}` : ""
       items.splice(toIdx + 1, 0, moved);
     }
     lastDroppedId = droppedId;
-    upd(newData);
-    setTimeout(() => {
+    try {
+      upd(newData);
+      setTimeout(() => {
+        lastDroppedId = null;
+      }, 700);
+    } catch {
       lastDroppedId = null;
-    }, 700);
+    }
   }
   function onDropCat(e, catId) {
     e.preventDefault();
@@ -22194,10 +22262,14 @@ Notes: ${task.notes}` : ""
     const idx = items.findIndex((i) => i.id === droppedId);
     if (idx >= 0) items[idx].categoryId = catId;
     lastDroppedId = droppedId;
-    upd(newData);
-    setTimeout(() => {
+    try {
+      upd(newData);
+      setTimeout(() => {
+        lastDroppedId = null;
+      }, 700);
+    } catch {
       lastDroppedId = null;
-    }, 700);
+    }
   }
 
   // src/js/components/sidebar.js
@@ -24134,6 +24206,7 @@ Notes: ${task.notes}` : ""
   // src/js/render.js
   var _searchWasFocused = false;
   var _searchCaretPos = 0;
+  var _searchRenderTimer = null;
   function buildTopbar() {
     const searchInput = h("input", {
       class: "search-input",
@@ -24148,11 +24221,14 @@ Notes: ${task.notes}` : ""
       },
       onInput: (e) => {
         _searchCaretPos = e.target.selectionStart;
-        set({ searchQuery: e.target.value });
+        S.searchQuery = e.target.value;
+        clearTimeout(_searchRenderTimer);
+        _searchRenderTimer = setTimeout(() => render(), 150);
       },
       onKeydown: (e) => {
         if (e.key === "Escape") {
           _searchWasFocused = false;
+          clearTimeout(_searchRenderTimer);
           set({ searchQuery: "" });
         }
       }
@@ -24187,6 +24263,8 @@ Notes: ${task.notes}` : ""
       h(
         "div",
         { class: "topbar-right" },
+        S.syncError ? h("span", { class: "sync-error-badge", title: S.syncError }, "\u26A0 Sync failed") : null,
+        S.calError ? h("span", { class: "sync-error-badge", title: S.calError }, "\u26A0 Calendar") : null,
         h("button", { class: "btn", onClick: () => set({ showSettings: true }) }, "\u2699 Settings"),
         h("button", {
           class: `btn btn-primary${S.showAddItem ? " active" : ""}`,

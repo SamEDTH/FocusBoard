@@ -1,4 +1,6 @@
 node_modules/
+runs.json
+.env
 
 # Claude Code project memory — may contain task titles/notes from AI sessions
 .claude/

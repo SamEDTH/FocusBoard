@@ -1,4 +1,4 @@
-import { S, set, toggleTheme, toggleSystemTheme, updateWorkingHours, updateFocusDefaults, updateFollowUpDays, loadCalFreeMinutes } from '../store.js';
+import { S, set, toggleTheme, toggleSystemTheme, updateWorkingHours, updateFocusDefaults, updateFollowUpDays, loadCalFreeMinutes, resetToDefault } from '../store.js';
 import { isPasswordProtected, lockApp } from './passwordGate.js';
 import { isSupabaseConfigured, signOut, signInWithGoogle } from '../services/supabase.js';
 import { S as AppS } from '../store.js';
@@ -213,6 +213,23 @@ export function buildSettings() {
         inp.addEventListener('change', e => updateFollowUpDays(Math.max(1, parseInt(e.target.value) || 5)));
         return h('div', { class: 'wh-row' }, inp, h('span', { class: 'wh-sep' }, 'days'));
       })()),
+
+      h('div', { class: 'settings-section-heading' }, 'Data'),
+      h('div', { class: 'settings-lock-row' },
+        h('div', null,
+          h('div', { class: 'settings-row-label' }, 'Reset board'),
+          h('div', { class: 'settings-row-sub' }, 'Replace all tasks with the demo data'),
+        ),
+        h('button', {
+          class: 'btn-lock btn-reset-board',
+          onClick: () => {
+            if (window.confirm('Reset everything to demo data? This cannot be undone.')) {
+              set({ showSettings: false });
+              resetToDefault();
+            }
+          },
+        }, 'Reset'),
+      ),
 
       // Sign out — shown when using Supabase auth
       isSupabaseConfigured() && AppS.userId ? h('div', { class: 'settings-lock-row' },

@@ -101,9 +101,11 @@ export const S = {
   focusMinBlock: savedSettings.focusMinBlock ?? 30,
   followUpDays:  savedSettings.followUpDays  ?? 5,
   calFreeMinutes: null, // total free working-hour minutes today (null = not loaded / no calendar)
+  calError: null,       // non-null when calendar token refresh failed — prompts reconnect
   // Supabase auth + sync
-  userId:  null,    // logged-in user id; null = not signed in or Supabase not configured
-  loading: false,   // true while fetching board data from Supabase on sign-in
+  userId:    null,  // logged-in user id; null = not signed in or Supabase not configured
+  loading:   false, // true while fetching board data from Supabase on sign-in
+  syncError: null,  // non-null string when the last Supabase write failed
 };
 
 // Start listening if system theme was previously enabled
@@ -121,9 +123,16 @@ export async function loadCalFreeMinutes() {
   const dateStr = [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
   try {
     S.calFreeMinutes = await getTotalFreeMinutes(dateStr, S.workStart, S.workEnd);
+    if (S.calError) S.calError = null;
     renderFn();
-  } catch {
+  } catch (err) {
     S.calFreeMinutes = null;
+    const msg = err?.message || '';
+    // Token refresh failures mean the user needs to reconnect — surface it
+    if (msg.includes('not connected') || msg.includes('expired') || msg.includes('refresh')) {
+      S.calError = 'Calendar disconnected — reconnect in Settings';
+      renderFn();
+    }
   }
 }
 
@@ -136,7 +145,15 @@ let _sbSaveTimer = null;
 function scheduleSbSave(data) {
   if (!isSupabaseConfigured() || !S.userId) return;
   clearTimeout(_sbSaveTimer);
-  _sbSaveTimer = setTimeout(() => saveBoard(S.userId, data), 1000);
+  _sbSaveTimer = setTimeout(async () => {
+    try {
+      await saveBoard(S.userId, data);
+      if (S.syncError) { S.syncError = null; renderFn(); }
+    } catch (e) {
+      S.syncError = e.message || 'Sync failed — changes saved locally';
+      renderFn();
+    }
+  }, 1000);
 }
 
 export function upd(newData) {
@@ -158,13 +175,22 @@ export async function initFromSupabase(userId) {
   S.loading = true;
   renderFn();
 
+  // Snapshot the data reference — if it changes during the fetch, a local
+  // mutation happened while we were loading; in that case we preserve the
+  // user's change rather than overwriting with the remote version.
+  const dataAtStart = S.data;
+
   try {
     // Timeout safety: if Supabase hangs for >10 s, unblock the UI anyway
     const withTimeout = (promise, ms) =>
       Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
 
     const remote = await withTimeout(loadBoard(userId), 10_000);
-    if (remote) {
+
+    if (S.data !== dataAtStart) {
+      // User mutated data while we were loading — their version is authoritative
+      saveBoard(userId, S.data).catch(e => console.warn('[supabase] post-init save failed:', e.message));
+    } else if (remote) {
       // Existing Supabase data — use it and refresh the local cache
       S.data = remote;
       saveData(remote);
@@ -187,7 +213,7 @@ export async function initFromSupabase(userId) {
       try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : null; }
       catch { return null; }
     })();
-    if (local) S.data = local;
+    if (local && S.data === dataAtStart) S.data = local;
   }
 
   S.loading = false;
@@ -358,14 +384,21 @@ export function toggleDone(id) {
     items[idx].doneDate = items[idx].done ? TODAY : undefined;
     // Spawn the next occurrence when completing a recurring task
     if (items[idx].done && items[idx].recurrence) {
-      const next = JSON.parse(JSON.stringify(items[idx]));
-      next.id       = uid();
-      next.done     = false;
-      next.doneAt   = undefined;
-      next.doneDate = undefined;
-      next.dueDate  = nextRecurringDueDate(items[idx].dueDate, items[idx].recurrence);
-      next.focusSessions = [];
-      items.push(next);
+      const nextDue = nextRecurringDueDate(items[idx].dueDate, items[idx].recurrence);
+      const alreadyExists = items.some(i =>
+        !i.done && i.title === items[idx].title &&
+        i.recurrence === items[idx].recurrence && i.dueDate === nextDue,
+      );
+      if (!alreadyExists) {
+        const next = JSON.parse(JSON.stringify(items[idx]));
+        next.id            = uid();
+        next.done          = false;
+        next.doneAt        = undefined;
+        next.doneDate      = undefined;
+        next.dueDate       = nextDue;
+        next.focusSessions = [];
+        items.push(next);
+      }
     }
   }
   upd(newData);
@@ -505,6 +538,13 @@ export function deleteCategory(id) {
   if (S.activeCat === id) { S.view = 'dashboard'; S.activeCat = null; }
   S.editingCat = null;
   upd(newData);
+}
+
+export function resetToDefault() {
+  S.data = JSON.parse(JSON.stringify(DEFAULT));
+  saveData(S.data);
+  scheduleSbSave(S.data);
+  renderFn();
 }
 
 export function addCategory(name) {
