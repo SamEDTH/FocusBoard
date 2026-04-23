@@ -24,10 +24,10 @@
   var DEFAULT = {
     work: {
       categories: [
-        { id: "clients", name: "Clients" },
-        { id: "internal", name: "Internal" },
-        { id: "finance", name: "Finance" },
-        { id: "bizdev", name: "Business dev" }
+        { id: "clients", name: "Project 1" },
+        { id: "internal", name: "Project 2" },
+        { id: "finance", name: "Project 3" },
+        { id: "bizdev", name: "Project 4" }
       ],
       items: [
         // ── Clients ─────────────────────────────────────────────────────────────
@@ -21338,39 +21338,59 @@ Notes: ${task.notes}` : ""
     upd(newData);
   }
   var DEFAULT_BIBLE_SECTIONS = [
-    { title: "Project Summary", rows: [
+    { title: "Project Summary", cols: 3, rows: [
       { label: "Project Name", value: "" },
-      { label: "SPV / Entity", value: "" },
+      { label: "SPV Name", value: "" },
       { label: "Project Type", value: "" },
-      { label: "Capacity (MW)", value: "" },
-      { label: "Stage / Status", value: "" },
-      { label: "Local Planning Authority", value: "" }
+      { label: "Connection (MW)", value: "" },
+      { label: "Connection Date", value: "" },
+      { label: "Trigger Date", value: "" },
+      { label: "DM", value: "" }
     ] },
-    { title: "Location", rows: [
-      { label: "Address", value: "" },
+    { title: "Location & Description", cols: 2, rows: [
+      { label: "Site Address", value: "" },
       { label: "Grid Reference", value: "" },
-      { label: "Site Area (acres)", value: "" },
-      { label: "Land Owner", value: "" }
+      { label: "Local Planning Authority", value: "" },
+      { label: "Parish Council", value: "" },
+      { label: "Site Access", value: "" },
+      { label: "Description of Development", value: "" }
     ] },
-    { title: "Grid Connection", rows: [
-      { label: "DNO", value: "" },
-      { label: "Contracted Capacity (MW)", value: "" },
-      { label: "Connection Point", value: "" },
-      { label: "Target Connection Date", value: "" },
-      { label: "ENA Reference", value: "" }
+    { title: "Site Analysis", cols: 1, rows: [
+      { label: "Residential Receptors", value: "" },
+      { label: "Topography", value: "" },
+      { label: "Public Access Routes", value: "" },
+      { label: "Cumulative Development", value: "" }
     ] },
-    { title: "Programme", rows: [
+    { title: "Grid Connection", cols: 2, rows: [
+      { label: "Point of Connection (POC)", value: "" },
+      { label: "Connection Type", value: "" },
+      { label: "Distance to POC", value: "" },
+      { label: "Cable Route", value: "" },
+      { label: "Batteries", value: "" },
+      { label: "Fencing", value: "" },
+      { label: "Substation / Switchgear", value: "" }
+    ] },
+    { title: "Legal Key Terms", cols: 1, rows: [
+      { label: "Option Period", value: "" },
+      { label: "Option Fee", value: "" },
+      { label: "Option Fee Due", value: "" },
+      { label: "Rent", value: "" },
+      { label: "Expansion Rent", value: "" },
+      { label: "Tenant", value: "" }
+    ] },
+    { title: "Programme Key Dates", cols: 2, rows: [
       { label: "Planning Submission", value: "" },
-      { label: "Planning Determination", value: "" },
-      { label: "FID", value: "" },
-      { label: "Construction Start", value: "" },
-      { label: "Commercial Operation", value: "" }
+      { label: "Planning Consent", value: "" },
+      { label: "Financial Investment Decision", value: "" },
+      { label: "Connection Date", value: "" },
+      { label: "RTB", value: "" }
     ] }
   ];
   function makeBibleSections() {
     return DEFAULT_BIBLE_SECTIONS.map((s) => ({
       id: uid(),
       title: s.title,
+      cols: s.cols || 1,
       rows: s.rows.map((r) => ({ id: uid(), label: r.label, value: r.value }))
     }));
   }
@@ -21422,6 +21442,19 @@ Notes: ${task.notes}` : ""
     if (sec) sec.title = title;
     upd(newData);
   }
+  function updateBibleSection(catId, sectionId, patch) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    const sec = cat?.bible?.sections?.find((s) => s.id === sectionId);
+    if (sec) Object.assign(sec, patch);
+    upd(newData);
+  }
+  function updateBibleGateway(catId, stage) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (cat?.bible) cat.bible.gatewayStage = stage;
+    upd(newData);
+  }
   function deleteBibleSection(catId, sectionId) {
     const newData = JSON.parse(JSON.stringify(S.data));
     const cat = newData[S.panel].categories.find((c) => c.id === catId);
@@ -21441,7 +21474,18 @@ Notes: ${task.notes}` : ""
     const cat = newData[S.panel].categories.find((c) => c.id === catId);
     const sec = cat?.bible?.sections?.find((s) => s.id === sectionId);
     const row = sec?.rows?.find((r) => r.id === rowId);
-    if (row) Object.assign(row, patch);
+    if (row) {
+      Object.assign(row, patch);
+      if ("value" in patch && row.label) {
+        const lbl = row.label.toLowerCase().trim();
+        const invoiceField = lbl === "project name" || lbl === "project" ? "project" : lbl === "spv name" || lbl === "spv" ? "spvName" : lbl === "dm" || lbl === "development manager" || lbl === "project manager" ? "dm" : null;
+        if (invoiceField && cat?.budget?.invoices) {
+          cat.budget.invoices.forEach((inv) => {
+            inv[invoiceField] = patch.value ?? "";
+          });
+        }
+      }
+    }
     upd(newData);
   }
   function deleteBibleRow(catId, sectionId, rowId) {
@@ -23482,8 +23526,6 @@ Notes: ${task.notes}` : ""
   }
   function buildWfActionBody(workflow, task) {
     const roundToNearest15 = (hrs) => Math.max(15, Math.round(parseFloat(hrs) * 60 / 15) * 15) || 60;
-    const subNatureIn = h("input", { class: "wft-inline-input", value: task.subNature || "", placeholder: "e.g. Draft, Review\u2026" });
-    subNatureIn.addEventListener("change", (e) => updateWorkflowTask(workflow.id, task.id, { subNature: e.target.value.trim() }));
     const dueDateIn = h("input", { class: "wft-inline-input", type: "date", value: task.dueDate || "" });
     dueDateIn.addEventListener("change", (e) => updateWorkflowTask(workflow.id, task.id, { dueDate: e.target.value }));
     const prioritySel = buildPriorityPicker(normalizePriority(task.priority), (v) => updateWorkflowTask(workflow.id, task.id, { priority: v }));
@@ -23499,7 +23541,6 @@ Notes: ${task.notes}` : ""
       h(
         "div",
         { class: "wft-body-fields" },
-        h("div", { class: "wft-body-field" }, h("span", { class: "wft-field-label" }, "Sub-type"), subNatureIn),
         h("div", { class: "wft-body-field" }, h("span", { class: "wft-field-label" }, "Due"), dueDateIn),
         h("div", { class: "wft-body-field wft-priority-field" }, h("span", { class: "wft-field-label" }, "Priority"), prioritySel),
         h("div", { class: "wft-body-field" }, h("span", { class: "wft-field-label" }, "Time (hrs)"), timeIn)
@@ -23516,8 +23557,6 @@ Notes: ${task.notes}` : ""
   function buildWfWaitingBody(workflow, task) {
     const daysOut = task.waitingSince ? daysBefore(task.waitingSince) : null;
     const chaseNeeded = task.chaseDate ? daysBefore(task.chaseDate) >= 0 : daysOut !== null && daysOut >= (task.followUpDays || 5);
-    const subNatureIn = h("input", { class: "wft-inline-input", value: task.subNature || "", placeholder: "e.g. Approval, Review\u2026" });
-    subNatureIn.addEventListener("change", (e) => updateWorkflowTask(workflow.id, task.id, { subNature: e.target.value.trim() }));
     const waitingFromIn = h("input", { class: "wft-inline-input", value: task.waitingFrom || "", placeholder: "Who or what are you waiting on?" });
     waitingFromIn.addEventListener("change", (e) => updateWorkflowTask(workflow.id, task.id, { waitingFrom: e.target.value.trim() }));
     const targetReturnIn = h("input", { class: "wft-inline-input", type: "date", value: task.targetReturnDate || "" });
@@ -23553,7 +23592,6 @@ Notes: ${task.notes}` : ""
       h(
         "div",
         { class: "wft-body-fields" },
-        h("div", { class: "wft-body-field" }, h("span", { class: "wft-field-label" }, "Sub-type"), subNatureIn),
         h("div", { class: "wft-body-field" }, h("span", { class: "wft-field-label" }, "Waiting on"), waitingFromIn),
         h("div", { class: "wft-body-field" }, h("span", { class: "wft-field-label" }, "Target return date"), targetReturnIn),
         h("div", { class: "wft-body-field" }, h("span", { class: "wft-field-label" }, "Follow-up / chase date"), chaseDateIn)
@@ -23572,7 +23610,6 @@ Notes: ${task.notes}` : ""
     const isActive = task.status === "active";
     if (isActive && task.nature === "pending") {
       let chosenNature = "action";
-      let subNature = "";
       let title = "";
       const actionBtn = h("button", { class: "wft-nature-pick active" }, "\u25B6 Action");
       const waitingBtn = h("button", { class: "wft-nature-pick" }, "\u23F3 Waiting");
@@ -23586,10 +23623,6 @@ Notes: ${task.notes}` : ""
         waitingBtn.classList.add("active");
         actionBtn.classList.remove("active");
       });
-      const subNatureIn = h("input", { class: "wft-add-input", placeholder: "Sub-type (e.g. Draft, Review, Approval)" });
-      subNatureIn.addEventListener("input", (e) => {
-        subNature = e.target.value;
-      });
       const titleIn = h("input", { class: "wft-add-input wft-add-title", placeholder: "Task title" });
       titleIn.addEventListener("input", (e) => {
         title = e.target.value;
@@ -23601,7 +23634,6 @@ Notes: ${task.notes}` : ""
         }
         updateWorkflowTask(workflow.id, task.id, {
           nature: chosenNature,
-          subNature: subNature.trim(),
           title: title.trim(),
           // waitingSince marks when the wait started, not applicable to actions
           waitingSince: chosenNature === "waiting" ? TODAY : ""
@@ -23613,7 +23645,6 @@ Notes: ${task.notes}` : ""
         { class: "wft-row wft-pending" },
         h("div", { class: "wft-pending-label" }, "\u21AA Follow-on task"),
         h("div", { class: "wft-nature-picker" }, actionBtn, waitingBtn),
-        subNatureIn,
         titleIn,
         h("div", { class: "wft-add-actions" }, confirmBtn, cancelBtn)
       );
@@ -23694,7 +23725,6 @@ Notes: ${task.notes}` : ""
       const statusIcon = task.status === "closed" ? "\u2713" : "\u21AA";
       const statusClass = task.status === "closed" ? "wft-icon-closed" : "wft-icon-done-new";
       const natureLabel2 = task.nature === "action" ? "Action" : "Waiting";
-      const subLabel2 = task.subNature ? ` \xB7 ${task.subNature}` : "";
       const reopenBtn = h("button", {
         class: "wft-reopen-btn",
         title: "Reopen task",
@@ -23704,7 +23734,7 @@ Notes: ${task.notes}` : ""
         "div",
         { class: "wft-row wft-closed" },
         h("span", { class: `wft-status-dot ${statusClass}` }, statusIcon),
-        h("span", { class: "wft-closed-nature" }, `${natureLabel2}${subLabel2}`),
+        h("span", { class: "wft-closed-nature" }, natureLabel2),
         h("span", { class: "wft-closed-title" }, task.title || "(untitled)"),
         task.closedAt ? h("span", { class: "wft-closed-date" }, task.closedAt) : null,
         reopenBtn
@@ -23714,11 +23744,10 @@ Notes: ${task.notes}` : ""
     const expanded = S.expandedCards[stateKey] !== false;
     const isAction = task.nature === "action";
     const natureLabel = isAction ? "\u25B6 Action" : "\u23F3 Waiting";
-    const subLabel = task.subNature ? ` \xB7 ${task.subNature}` : "";
     const natureBadge = h(
       "span",
       { class: `wft-nature-badge ${isAction ? "wft-action" : "wft-waiting"}` },
-      natureLabel + subLabel
+      natureLabel
     );
     const titleInput = h("input", { class: "wft-title-input", value: task.title, placeholder: "Task title\u2026" });
     titleInput.addEventListener("change", (e) => updateWorkflowTask(workflow.id, task.id, { title: e.target.value.trim() }));
@@ -23783,7 +23812,6 @@ Notes: ${task.notes}` : ""
   }
   function buildAddWfTaskForm(workflow, container) {
     let nature = "action";
-    let subNature = "";
     let title = "";
     let dueDate = "";
     let priority = 5;
@@ -23844,10 +23872,6 @@ Notes: ${task.notes}` : ""
       waitingFields.style.display = "";
       actionFields.style.display = "none";
     });
-    const subNatureIn = h("input", { class: "wft-add-input", placeholder: "Sub-type (e.g. Draft, Review, Approval)" });
-    subNatureIn.addEventListener("input", (e) => {
-      subNature = e.target.value;
-    });
     const titleIn = h("input", { class: "wft-add-input wft-add-title", placeholder: "Task title" });
     titleIn.addEventListener("input", (e) => {
       title = e.target.value;
@@ -23860,7 +23884,6 @@ Notes: ${task.notes}` : ""
       const mins = Math.max(15, Math.round(parseFloat(timeHrs) * 60 / 15) * 15) || 60;
       addWorkflowTask(workflow.id, {
         nature,
-        subNature: subNature.trim(),
         title: title.trim(),
         dueDate: nature === "action" ? dueDate : "",
         priority: nature === "action" ? priority : "",
@@ -23877,8 +23900,7 @@ Notes: ${task.notes}` : ""
       h(
         "div",
         { class: "wft-add-row wft-add-top" },
-        h("div", { class: "wft-nature-picker" }, actionBtn, waitingBtn),
-        subNatureIn
+        h("div", { class: "wft-nature-picker" }, actionBtn, waitingBtn)
       ),
       h("div", { class: "wft-add-field wft-add-title-field" }, titleIn),
       actionFields,
@@ -24386,102 +24408,170 @@ Notes: ${task.notes}` : ""
   }
 
   // src/js/components/bibleView.js
+  var INVOICE_LINKED = /* @__PURE__ */ new Set(["project name", "spv name", "dm", "development manager", "project manager"]);
+  var isLinked = (label) => INVOICE_LINKED.has(label?.trim().toLowerCase());
   function buildRow(catId, sectionId, row) {
-    const labelInp = h("input", { class: "bv-row-label", value: row.label, placeholder: "Field name" });
-    labelInp.addEventListener("change", (e) => updateBibleRow(catId, sectionId, row.id, { label: e.target.value }));
-    const valueInp = h("input", { class: "bv-row-value", value: row.value, placeholder: "\u2014" });
-    valueInp.addEventListener("change", (e) => updateBibleRow(catId, sectionId, row.id, { value: e.target.value }));
-    const del = h("button", { class: "bv-del-btn", title: "Remove row" }, "\xD7");
-    del.addEventListener("click", () => deleteBibleRow(catId, sectionId, row.id));
-    return h("div", { class: "bv-row" }, labelInp, valueInp, del);
-  }
-  function buildSection(catId, section) {
-    const titleInp = h("input", { class: "bv-section-title", value: section.title, placeholder: "Section title" });
-    titleInp.addEventListener("change", (e) => updateBibleSectionTitle(catId, section.id, e.target.value.trim() || section.title));
-    const addRowBtn = h("button", { class: "bv-action-btn", title: "Add row" }, "+ Row");
-    addRowBtn.addEventListener("click", () => addBibleRow(catId, section.id));
-    const delSectionBtn = h("button", { class: "bv-action-btn bv-action-del", title: "Delete section" }, "\xD7 Section");
-    delSectionBtn.addEventListener("click", () => deleteBibleSection(catId, section.id));
-    const header = h(
-      "div",
-      { class: "bv-section-header" },
-      titleInp,
-      h("div", { class: "bv-section-actions" }, addRowBtn, delSectionBtn)
+    const labelInp = h("input", { class: "bv-label", value: row.label || "", placeholder: "Field" });
+    labelInp.addEventListener(
+      "change",
+      (e) => updateBibleRow(catId, sectionId, row.id, { label: e.target.value })
     );
+    const valueInp = h("input", { class: "bv-value", value: row.value || "", placeholder: "\u2014" });
+    valueInp.addEventListener(
+      "change",
+      (e) => updateBibleRow(catId, sectionId, row.id, { value: e.target.value })
+    );
+    const badge = isLinked(row.label) ? h("span", { class: "bv-linked", title: "Feeds into Invoice Tracker" }, "\u2197") : null;
+    const del = h("button", { class: "bv-row-del", tabindex: "-1", title: "Remove row" }, "\xD7");
+    del.addEventListener("click", () => deleteBibleRow(catId, sectionId, row.id));
+    return h("div", { class: "bv-row" }, labelInp, valueInp, badge, del);
+  }
+  var GATEWAY_STAGES = ["Grid", "HoTs", "Option", "Planning", "RTB"];
+  function buildGatewayBar(catId, currentStage) {
+    const bar = h("div", { class: "bv-gw-bar" });
+    GATEWAY_STAGES.forEach((name, i) => {
+      const n = i + 1;
+      const isDone = currentStage > n;
+      const isActive = currentStage === n;
+      const cls = isDone ? "bv-gw-stage bv-gw-done" : isActive ? "bv-gw-stage bv-gw-active" : "bv-gw-stage";
+      const dot = h("div", { class: "bv-gw-dot" }, isDone ? "\u2713" : String(n));
+      const label = h("div", { class: "bv-gw-name" }, name);
+      const stage = h("div", { class: cls, title: `Gateway: ${name}` }, dot, label);
+      stage.addEventListener(
+        "click",
+        () => updateBibleGateway(catId, isActive ? 0 : n)
+        // click active stage to deselect
+      );
+      bar.appendChild(stage);
+      if (i < GATEWAY_STAGES.length - 1) {
+        bar.appendChild(h("div", { class: `bv-gw-conn${isDone ? " bv-gw-conn-done" : ""}` }));
+      }
+    });
+    return h(
+      "div",
+      { class: "bv-gateway" },
+      h("div", { class: "bv-gw-label" }, "Gateway Status"),
+      bar
+    );
+  }
+  function buildNode(catId, section, isSummary) {
+    const cols = isSummary ? 3 : section.cols || 1;
+    const titleInp = h("input", {
+      class: "bv-node-title",
+      value: section.title || "",
+      placeholder: "Section title",
+      tabindex: "-1"
+    });
+    titleInp.addEventListener(
+      "change",
+      (e) => updateBibleSectionTitle(catId, section.id, e.target.value.trim() || section.title)
+    );
+    const addRowBtn = h("button", { class: "bv-ctrl", tabindex: "-1" }, "+ Row");
+    addRowBtn.addEventListener("click", () => addBibleRow(catId, section.id));
+    const COL_ICONS = ["\u25A3", "\u25A3\u25A3", "\u25A3\u25A3\u25A3"];
+    const resizeBtn = isSummary ? null : h("button", {
+      class: "bv-ctrl bv-resize",
+      tabindex: "-1",
+      title: "Resize node"
+    }, COL_ICONS[cols - 1] || "\u25A3");
+    if (resizeBtn) {
+      resizeBtn.addEventListener(
+        "click",
+        () => updateBibleSection(catId, section.id, { cols: cols % 3 + 1 })
+      );
+    }
+    const delSec = h("button", { class: "bv-ctrl bv-ctrl-del", tabindex: "-1" }, "\xD7 Delete");
+    delSec.addEventListener("click", () => deleteBibleSection(catId, section.id));
+    const controls = h(
+      "div",
+      { class: "bv-node-controls" },
+      addRowBtn,
+      ...resizeBtn ? [resizeBtn] : [],
+      delSec
+    );
+    const header = h("div", { class: "bv-node-header" }, titleInp, controls);
     const body = h(
       "div",
-      { class: "bv-section-body" },
+      { class: "bv-node-body" },
       ...section.rows.map((r) => buildRow(catId, section.id, r))
     );
-    return h("div", { class: "bv-section" }, header, body);
+    const node = h("div", { class: `bv-node${isSummary ? " bv-node-summary" : ""}` }, header, body);
+    node.style.gridColumn = `span ${cols}`;
+    if (isSummary) {
+      const cat = getPanelData().categories.find((c) => c.id === catId);
+      node.appendChild(buildGatewayBar(catId, cat?.bible?.gatewayStage || 0));
+    }
+    return node;
   }
-  function buildContactsSection(catId, contacts) {
+  function buildContactsNode(catId, contacts) {
+    const cell = (c, key, placeholder) => {
+      const inp2 = h("input", { class: "bv-contact-inp", value: c[key] || "", placeholder });
+      inp2.addEventListener(
+        "change",
+        (e) => updateBibleContact(catId, c.id, { [key]: e.target.value.trim() })
+      );
+      return h("td", null, inp2);
+    };
     const rows = contacts.map((c) => {
-      const cell = (key, placeholder) => {
-        const inp2 = h("input", { class: "bv-contact-cell", value: c[key] || "", placeholder });
-        inp2.addEventListener("change", (e) => updateBibleContact(catId, c.id, { [key]: e.target.value.trim() }));
-        return h("td", null, inp2);
-      };
-      const del = h("button", { class: "bv-del-btn", title: "Remove" }, "\xD7");
+      const del = h("button", { class: "bv-ctrl bv-ctrl-del", tabindex: "-1", title: "Remove" }, "\xD7");
       del.addEventListener("click", () => deleteBibleContact(catId, c.id));
       return h(
         "tr",
         null,
-        cell("role", "Role"),
-        cell("name", "Name"),
-        cell("company", "Company"),
-        cell("email", "Email"),
-        cell("phone", "Phone"),
+        cell(c, "role", "Role"),
+        cell(c, "name", "Name"),
+        cell(c, "company", "Company"),
+        cell(c, "email", "Email"),
+        cell(c, "phone", "Phone"),
         h("td", { class: "bv-contact-del-cell" }, del)
       );
     });
-    const addBtn = h("button", { class: "bv-action-btn", style: { marginTop: "8px" } }, "+ Add contact");
-    addBtn.addEventListener("click", () => addBibleContact(catId, { role: "", name: "", company: "", email: "", phone: "" }));
-    return h(
+    const addBtn = h("button", { class: "bv-ctrl", tabindex: "-1" }, "+ Contact");
+    addBtn.addEventListener(
+      "click",
+      () => addBibleContact(catId, { role: "", name: "", company: "", email: "", phone: "" })
+    );
+    const titleFixed = h("span", { class: "bv-node-title bv-node-title-fixed" }, "Key Contacts");
+    const controls = h("div", { class: "bv-node-controls bv-node-controls-visible" }, addBtn);
+    const header = h("div", { class: "bv-node-header" }, titleFixed, controls);
+    const body = h(
       "div",
-      { class: "bv-section" },
+      { class: "bv-node-body bv-node-body-table" },
       h(
-        "div",
-        { class: "bv-section-header" },
-        h("span", { class: "bv-section-title-fixed" }, "Key Contacts")
-      ),
-      h(
-        "div",
-        { class: "bv-section-body" },
-        contacts.length ? h(
-          "div",
-          { class: "bv-table-scroll" },
-          h(
-            "table",
-            { class: "bv-contacts-table" },
-            h("thead", null, h(
-              "tr",
-              null,
-              h("th", null, "Role"),
-              h("th", null, "Name"),
-              h("th", null, "Company"),
-              h("th", null, "Email"),
-              h("th", null, "Phone"),
-              h("th", null, "")
-            )),
-            h("tbody", null, ...rows)
-          )
-        ) : null,
-        addBtn
+        "table",
+        { class: "bv-contacts-table" },
+        h("thead", null, h(
+          "tr",
+          null,
+          h("th", null, "Role"),
+          h("th", null, "Name"),
+          h("th", null, "Company"),
+          h("th", null, "Email"),
+          h("th", null, "Phone"),
+          h("th", null, "")
+        )),
+        h("tbody", null, ...rows)
       )
     );
+    const node = h("div", { class: "bv-node" }, header, body);
+    node.style.gridColumn = "span 3";
+    return node;
   }
   function buildBibleView(catId) {
     const cat = getPanelData().categories.find((c) => c.id === catId);
     const bible = cat?.bible || {};
     const sections = Array.isArray(bible.sections) ? bible.sections : [];
     const contacts = Array.isArray(bible.contacts) ? bible.contacts : [];
+    const summaryIdx = sections.findIndex((s) => s.title?.toLowerCase().includes("project summary"));
+    const sIdx = summaryIdx >= 0 ? summaryIdx : 0;
+    const grid = h("div", { class: "bv-grid" });
+    sections.forEach((sec, i) => grid.appendChild(buildNode(catId, sec, i === sIdx)));
+    grid.appendChild(buildContactsNode(catId, contacts));
+    const addBtn = h("button", { class: "bv-add-section-btn" }, "+ Add section");
+    addBtn.addEventListener("click", () => addBibleSection(catId));
     const frag = document.createDocumentFragment();
-    sections.forEach((sec) => frag.appendChild(buildSection(catId, sec)));
-    frag.appendChild(buildContactsSection(catId, contacts));
-    const addSecBtn = h("button", { class: "bv-add-section-btn" }, "+ Add section");
-    addSecBtn.addEventListener("click", () => addBibleSection(catId));
-    frag.appendChild(addSecBtn);
+    frag.appendChild(grid);
+    frag.appendChild(addBtn);
     return frag;
   }
 
@@ -24510,19 +24600,6 @@ Notes: ${task.notes}` : ""
     el.addEventListener("change", (e) => onChange(e.target.value));
     return el;
   }
-  function selKV(val, options, onChange) {
-    const el = h(
-      "select",
-      { class: "bgt-inp" },
-      ...options.map((o) => {
-        const opt = h("option", { value: o.value }, o.label);
-        if (o.value === val) opt.selected = true;
-        return opt;
-      })
-    );
-    el.addEventListener("change", (e) => onChange(e.target.value));
-    return el;
-  }
   function td(content, cls) {
     return h("td", cls ? { class: cls } : null, content);
   }
@@ -24530,7 +24607,7 @@ Notes: ${task.notes}` : ""
     return h("td", { class: `bgt-r bgt-auto${cls ? " " + cls : ""}` }, text);
   }
   function delBtn(onClick) {
-    const btn = h("button", { class: "bgt-del", title: "Remove" }, "\xD7");
+    const btn = h("button", { class: "bgt-del", title: "Remove", tabindex: "-1" }, "\xD7");
     btn.addEventListener("click", onClick);
     return btn;
   }
@@ -24601,13 +24678,24 @@ Notes: ${task.notes}` : ""
       )
     );
   }
-  var APPOINTED = ["\u2014", "Yes", "No", "TBC"];
+  var APPOINTED = ["\u2014", "Yes", "No", "Partial", "Terminated"];
+  function doneCheckbox(checked, onChange) {
+    const el = h("input", { type: "checkbox", class: "bgt-done-chk", title: "Invoicing complete", tabindex: "-1" });
+    el.checked = !!checked;
+    el.addEventListener("change", (e) => onChange(e.target.checked));
+    return el;
+  }
   function buildConsultants(catId, consultants, invoices) {
     const rows = consultants.map((c) => {
       const upd2 = (patch) => updateBudgetConsultant(catId, c.id, patch);
       const budget = num(c.quote) * (1 + num(c.contingencyPct) / 100);
       const totals = getConsultantTotals(c.id, invoices);
       const balance = num(c.quote) - totals.invoiced;
+      const hasActivity = num(c.quote) > 0 || totals.invoiced > 0;
+      let balanceCls = balance < 0 ? "bgt-over" : "";
+      if (balance >= 0 && hasActivity) {
+        balanceCls = c.invoicingDone ? "bgt-bal-done" : "bgt-bal-ongoing";
+      }
       return h(
         "tr",
         null,
@@ -24624,7 +24712,8 @@ Notes: ${task.notes}` : ""
         calcTd(fmt3(totals.accounts)),
         calcTd(fmt3(totals.paid)),
         calcTd(fmt3(totals.invoiced)),
-        calcTd(fmt3(balance), balance < 0 ? "bgt-over" : ""),
+        calcTd(fmt3(balance), balanceCls),
+        td(doneCheckbox(c.invoicingDone, (v) => upd2({ invoicingDone: v })), "bgt-done-cell"),
         td(inp(c.comments, "Notes", (v) => upd2({ comments: v }))),
         td(delBtn(() => deleteBudgetConsultant(catId, c.id)), "bgt-del-cell")
       );
@@ -24641,7 +24730,8 @@ Notes: ${task.notes}` : ""
         category: "",
         subCategory: "",
         quote: "",
-        contingencyPct: "",
+        contingencyPct: "10",
+        invoicingDone: false,
         comments: ""
       })
     );
@@ -24672,6 +24762,7 @@ Notes: ${task.notes}` : ""
             h("th", { class: "bgt-r bgt-auto-hdr" }, "Paid \xA3 \u2197"),
             h("th", { class: "bgt-r bgt-auto-hdr" }, "Invoiced \xA3 \u2197"),
             h("th", { class: "bgt-r bgt-auto-hdr" }, "Balance \xA3"),
+            h("th", { class: "bgt-done-hdr", title: "Tick when invoicing is complete \u2014 balance turns green" }, "Done?"),
             h("th", null, "Comments"),
             h("th", null, "")
           )),
@@ -24682,40 +24773,132 @@ Notes: ${task.notes}` : ""
     );
   }
   var STATUSES = ["Pending", "Approved", "Paid", "Disputed"];
-  function buildInvoiceTable(catId, invoices, consultants) {
-    const consultantOptions = [
-      { value: "", label: "\u2014 unlinked \u2014" },
-      ...consultants.map((c) => ({
-        value: c.id,
-        label: [c.party, c.company].filter(Boolean).join(" / ") || `Consultant ${c.id.slice(-4)}`
-      }))
-    ];
+  var DOC_TYPES = ["Invoice", "Undertaking", "Payable", "Quote"];
+  function bibleField(catId, ...labels) {
+    const cat = getPanelData().categories.find((c) => c.id === catId);
+    const sections = Array.isArray(cat?.bible?.sections) ? cat.bible.sections : [];
+    for (const label of labels) {
+      for (const sec of sections) {
+        const row = sec.rows?.find((r) => r.label?.toLowerCase() === label.toLowerCase());
+        if (row?.value) return row.value;
+      }
+    }
+    return "";
+  }
+  function partyCell(inv, consultants, catId) {
+    const listId = `bgt-pl-${catId}`;
+    const el = h("input", { class: "bgt-inp", value: inv.party ?? "", placeholder: "Party", list: listId });
+    const applyValue = (val, saveAlways = false) => {
+      const match = consultants.find((c) => c.party && c.party === val);
+      if (match) {
+        updateBudgetInvoice(catId, inv.id, {
+          party: val,
+          company: match.company || "",
+          discipline: match.discipline || "",
+          category: match.category || "",
+          subCategory: match.subCategory || "",
+          consultantId: match.id
+        });
+      } else if (saveAlways) {
+        updateBudgetInvoice(catId, inv.id, { party: val, consultantId: "" });
+      }
+    };
+    el.addEventListener("input", (e) => applyValue(e.target.value, false));
+    el.addEventListener("change", (e) => applyValue(e.target.value, true));
+    return el;
+  }
+  function ensurePartyDatalist(catId, consultants) {
+    const id = `bgt-pl-${catId}`;
+    let dl = document.getElementById(id);
+    if (!dl) {
+      dl = document.createElement("datalist");
+      dl.id = id;
+      document.body.appendChild(dl);
+    }
+    dl.innerHTML = "";
+    consultants.filter((c) => c.party).forEach((c) => {
+      const opt = document.createElement("option");
+      opt.value = c.party;
+      dl.appendChild(opt);
+    });
+  }
+  var _selCatId = null;
+  var selectedInvoiceIds = /* @__PURE__ */ new Set();
+  function clearSelectionIfNeeded(catId) {
+    if (_selCatId !== catId) {
+      selectedInvoiceIds.clear();
+      _selCatId = catId;
+    }
+  }
+  function buildInvoiceTable(catId, invoices, consultants, onSelectionChange) {
+    clearSelectionIfNeeded(catId);
+    ensurePartyDatalist(catId, consultants);
+    const allIds = invoices.map((i) => i.id);
+    const headerChk = h("input", { type: "checkbox", class: "bgt-sel-chk", title: "Select / deselect all", tabindex: "-1" });
+    headerChk.indeterminate = selectedInvoiceIds.size > 0 && selectedInvoiceIds.size < allIds.length;
+    headerChk.checked = allIds.length > 0 && allIds.every((id) => selectedInvoiceIds.has(id));
+    const syncHeader = () => {
+      const n = allIds.filter((id) => selectedInvoiceIds.has(id)).length;
+      headerChk.checked = n === allIds.length && allIds.length > 0;
+      headerChk.indeterminate = n > 0 && n < allIds.length;
+    };
+    headerChk.addEventListener("change", (e) => {
+      if (e.target.checked) allIds.forEach((id) => selectedInvoiceIds.add(id));
+      else allIds.forEach((id) => selectedInvoiceIds.delete(id));
+      rowChkEls.forEach((c) => {
+        c.checked = e.target.checked;
+      });
+      onSelectionChange?.();
+    });
+    const rowChkEls = [];
     const rows = invoices.map((inv) => {
       const upd2 = (patch) => updateBudgetInvoice(catId, inv.id, patch);
       const total = num(inv.net) + num(inv.vat);
-      return h(
+      const rowChk = h("input", { type: "checkbox", class: "bgt-sel-chk bgt-sel-row", title: "Select row", tabindex: "-1" });
+      rowChk.checked = selectedInvoiceIds.has(inv.id);
+      rowChkEls.push(rowChk);
+      rowChk.addEventListener("change", (e) => {
+        if (e.target.checked) selectedInvoiceIds.add(inv.id);
+        else selectedInvoiceIds.delete(inv.id);
+        syncHeader();
+        onSelectionChange?.();
+      });
+      const row = h(
         "tr",
         null,
-        td(inp(inv.party, "Party", (v) => upd2({ party: v }))),
+        td(rowChk, "bgt-sel-cell"),
+        td(partyCell(inv, consultants, catId)),
         td(inp(inv.company, "Company", (v) => upd2({ company: v }))),
+        td(inp(inv.project, "Project", (v) => upd2({ project: v }))),
+        td(inp(inv.dm, "DM", (v) => upd2({ dm: v }))),
+        td(inp(inv.spvName, "SPV Name", (v) => upd2({ spvName: v }))),
+        td(selStr(inv.documentType || "Invoice", DOC_TYPES, (v) => upd2({ documentType: v }))),
         td(inp(inv.discipline, "Discipline", (v) => upd2({ discipline: v }))),
         td(inp(inv.category, "Category", (v) => upd2({ category: v }))),
         td(inp(inv.subCategory, "Sub-Category", (v) => upd2({ subCategory: v }))),
-        td(inp(inv.spvName, "SPV Name", (v) => upd2({ spvName: v }))),
         td(inp(inv.invoiceDate, "", (v) => upd2({ invoiceDate: v }), "date")),
         td(inp(inv.invoiceNumber, "Inv #", (v) => upd2({ invoiceNumber: v }))),
         td(inp(inv.dueDate, "", (v) => upd2({ dueDate: v }), "date")),
         td(selStr(inv.status || "Pending", STATUSES, (v) => upd2({ status: v }))),
-        td(inp(inv.net, "0", (v) => upd2({ net: v }), "number"), "bgt-r"),
+        td(inp(inv.net, "0", (v) => {
+          const patch = { net: v };
+          if ((inv.vat === "" || inv.vat == null) && v) {
+            patch.vat = String(Math.round(parseFloat(v) * 0.2) || "");
+          }
+          upd2(patch);
+        }, "number"), "bgt-r"),
         td(inp(inv.vat, "0", (v) => upd2({ vat: v }), "number"), "bgt-r"),
         td(h("span", { class: "bgt-calc" }, fmt3(total)), "bgt-r"),
         td(inp(inv.accountsDate, "", (v) => upd2({ accountsDate: v }), "date")),
         td(inp(inv.paidDate, "", (v) => upd2({ paidDate: v }), "date")),
         td(inp(inv.comment, "Notes", (v) => upd2({ comment: v }))),
-        // Link to consultant — appended after data columns, does not affect import order
-        td(selKV(inv.consultantId || "", consultantOptions, (v) => upd2({ consultantId: v })), "bgt-link-cell"),
         td(delBtn(() => deleteBudgetInvoice(catId, inv.id)), "bgt-del-cell")
       );
+      if (selectedInvoiceIds.has(inv.id)) row.classList.add("bgt-sel-row-active");
+      rowChk.addEventListener("change", () => {
+        row.classList.toggle("bgt-sel-row-active", rowChk.checked);
+      });
+      return row;
     });
     const addBtn = h("button", { class: "bgt-add-btn" }, "+ Add invoice");
     addBtn.addEventListener(
@@ -24723,10 +24906,13 @@ Notes: ${task.notes}` : ""
       () => addBudgetInvoice(catId, {
         party: "",
         company: "",
+        project: bibleField(catId, "project", "project name"),
+        dm: bibleField(catId, "dm", "development manager", "project manager"),
+        spvName: bibleField(catId, "spv name", "spv", "spv entity"),
+        documentType: "Invoice",
         discipline: "",
         category: "",
         subCategory: "",
-        spvName: "",
         invoiceDate: "",
         invoiceNumber: "",
         dueDate: "",
@@ -24751,12 +24937,16 @@ Notes: ${task.notes}` : ""
           h("thead", null, h(
             "tr",
             null,
+            h("th", { class: "bgt-sel-hdr" }, headerChk),
             h("th", null, "Party"),
             h("th", null, "Company"),
+            h("th", { class: "bgt-auto-hdr", title: "Pre-filled from Project Bible" }, "Project \u2197"),
+            h("th", { class: "bgt-auto-hdr", title: "Pre-filled from Project Bible" }, "DM \u2197"),
+            h("th", { class: "bgt-auto-hdr", title: "Pre-filled from Project Bible" }, "SPV Name \u2197"),
+            h("th", null, "Doc Type"),
             h("th", null, "Discipline"),
             h("th", null, "Category"),
             h("th", null, "Sub-Category"),
-            h("th", null, "SPV Name"),
             h("th", null, "Invoice Date"),
             h("th", null, "Invoice #"),
             h("th", null, "Due Date"),
@@ -24767,7 +24957,6 @@ Notes: ${task.notes}` : ""
             h("th", null, "Accounts Date"),
             h("th", null, "Paid Date"),
             h("th", null, "Comment"),
-            h("th", { class: "bgt-auto-hdr" }, "Linked To \u2197"),
             h("th", null, "")
           )),
           h("tbody", null, ...rows)
@@ -24785,12 +24974,93 @@ Notes: ${task.notes}` : ""
     frag.appendChild(buildConsultants(catId, budget.consultants, budget.invoices));
     return frag;
   }
+  var INVOICE_HEADERS = [
+    "Party",
+    "Company",
+    "Project",
+    "DM",
+    "SPV Name",
+    "Doc Type",
+    "Discipline",
+    "Category",
+    "Sub-Category",
+    "Invoice Date",
+    "Invoice #",
+    "Due Date",
+    "Status",
+    "Net \xA3",
+    "VAT \xA3",
+    "Total \xA3",
+    "Accounts Date",
+    "Paid Date",
+    "Comment"
+  ];
+  function invoiceToRow(inv) {
+    const total = num(inv.net) + num(inv.vat);
+    return [
+      inv.party || "",
+      inv.company || "",
+      inv.project || "",
+      inv.dm || "",
+      inv.spvName || "",
+      inv.documentType || "",
+      inv.discipline || "",
+      inv.category || "",
+      inv.subCategory || "",
+      inv.invoiceDate || "",
+      inv.invoiceNumber || "",
+      inv.dueDate || "",
+      inv.status || "",
+      inv.net || "",
+      inv.vat || "",
+      total ? total.toString() : "",
+      inv.accountsDate || "",
+      inv.paidDate || "",
+      inv.comment || ""
+    ];
+  }
+  function buildCopyBtn(getInvoices) {
+    const label = () => {
+      const n = selectedInvoiceIds.size;
+      return n > 0 ? `\u{1F4CB} Copy selected (${n})` : "\u{1F4CB} Copy all";
+    };
+    const btn = h("button", { class: "bgt-copy-btn", title: "Copy rows as tab-separated values \u2014 paste directly into Excel" }, label());
+    btn.refresh = () => {
+      btn.textContent = label();
+    };
+    btn.addEventListener("click", () => {
+      const invoices = getInvoices();
+      const toCopy = selectedInvoiceIds.size > 0 ? invoices.filter((inv) => selectedInvoiceIds.has(inv.id)) : invoices;
+      const lines = [
+        INVOICE_HEADERS.join("	"),
+        ...toCopy.map((inv) => invoiceToRow(inv).join("	"))
+      ];
+      navigator.clipboard.writeText(lines.join("\n")).then(() => {
+        btn.textContent = "\u2713 Copied!";
+        btn.classList.add("bgt-copy-ok");
+        setTimeout(() => {
+          btn.refresh();
+          btn.classList.remove("bgt-copy-ok");
+        }, 2e3);
+      });
+    });
+    return btn;
+  }
   function buildInvoicesView(catId) {
     const cat = getPanelData().categories.find((c) => c.id === catId);
     const budget = cat?.budget || { consultants: [], invoices: [] };
     const frag = document.createDocumentFragment();
-    frag.appendChild(h("div", { class: "bgt-block-title" }, "Payment Tracker"));
-    frag.appendChild(buildInvoiceTable(catId, budget.invoices, budget.consultants));
+    const copyBtn = buildCopyBtn(
+      () => getPanelData().categories.find((c) => c.id === catId)?.budget?.invoices || []
+    );
+    const titleRow = h(
+      "div",
+      { class: "bgt-title-row" },
+      h("div", { class: "bgt-block-title" }, "Payment Tracker"),
+      copyBtn
+    );
+    frag.appendChild(titleRow);
+    frag.appendChild(buildInvoiceTable(catId, budget.invoices, budget.consultants, () => copyBtn.refresh()));
     return frag;
   }
 

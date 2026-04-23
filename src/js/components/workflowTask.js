@@ -71,9 +71,6 @@ function buildWfFocusPickerToggle(workflow, wfTask) {
 function buildWfActionBody(workflow, task) {
   const roundToNearest15 = hrs => Math.max(15, Math.round(parseFloat(hrs) * 60 / 15) * 15) || 60;
 
-  const subNatureIn = h('input', { class: 'wft-inline-input', value: task.subNature || '', placeholder: 'e.g. Draft, Review…' });
-  subNatureIn.addEventListener('change', e => updateWorkflowTask(workflow.id, task.id, { subNature: e.target.value.trim() }));
-
   const dueDateIn = h('input', { class: 'wft-inline-input', type: 'date', value: task.dueDate || '' });
   dueDateIn.addEventListener('change', e => updateWorkflowTask(workflow.id, task.id, { dueDate: e.target.value }));
 
@@ -89,7 +86,6 @@ function buildWfActionBody(workflow, task) {
 
   return h('div', { class: 'wft-body' },
     h('div', { class: 'wft-body-fields' },
-      h('div', { class: 'wft-body-field' }, h('span', { class: 'wft-field-label' }, 'Sub-type'), subNatureIn),
       h('div', { class: 'wft-body-field' }, h('span', { class: 'wft-field-label' }, 'Due'), dueDateIn),
       h('div', { class: 'wft-body-field wft-priority-field' }, h('span', { class: 'wft-field-label' }, 'Priority'), prioritySel),
       h('div', { class: 'wft-body-field' }, h('span', { class: 'wft-field-label' }, 'Time (hrs)'), timeIn),
@@ -112,9 +108,6 @@ function buildWfWaitingBody(workflow, task) {
   const chaseNeeded = task.chaseDate
     ? daysBefore(task.chaseDate) >= 0
     : (daysOut !== null && daysOut >= (task.followUpDays || 5));
-
-  const subNatureIn = h('input', { class: 'wft-inline-input', value: task.subNature || '', placeholder: 'e.g. Approval, Review…' });
-  subNatureIn.addEventListener('change', e => updateWorkflowTask(workflow.id, task.id, { subNature: e.target.value.trim() }));
 
   const waitingFromIn = h('input', { class: 'wft-inline-input', value: task.waitingFrom || '', placeholder: 'Who or what are you waiting on?' });
   waitingFromIn.addEventListener('change', e => updateWorkflowTask(workflow.id, task.id, { waitingFrom: e.target.value.trim() }));
@@ -156,7 +149,6 @@ function buildWfWaitingBody(workflow, task) {
 
   return h('div', { class: 'wft-body' },
     h('div', { class: 'wft-body-fields' },
-      h('div', { class: 'wft-body-field' }, h('span', { class: 'wft-field-label' }, 'Sub-type'), subNatureIn),
       h('div', { class: 'wft-body-field' }, h('span', { class: 'wft-field-label' }, 'Waiting on'), waitingFromIn),
       h('div', { class: 'wft-body-field' }, h('span', { class: 'wft-field-label' }, 'Target return date'), targetReturnIn),
       h('div', { class: 'wft-body-field' }, h('span', { class: 'wft-field-label' }, 'Follow-up / chase date'), chaseDateIn),
@@ -180,7 +172,6 @@ export function buildWfTaskRow(workflow, task) {
   // ── Pending: inline nature picker (spawned from "More to do") ────────────
   if (isActive && task.nature === 'pending') {
     let chosenNature = 'action';
-    let subNature = '';
     let title = '';
 
     const actionBtn = h('button', { class: 'wft-nature-pick active' }, '▶ Action');
@@ -195,9 +186,6 @@ export function buildWfTaskRow(workflow, task) {
       waitingBtn.classList.add('active'); actionBtn.classList.remove('active');
     });
 
-    const subNatureIn = h('input', { class: 'wft-add-input', placeholder: 'Sub-type (e.g. Draft, Review, Approval)' });
-    subNatureIn.addEventListener('input', e => { subNature = e.target.value; });
-
     const titleIn = h('input', { class: 'wft-add-input wft-add-title', placeholder: 'Task title' });
     titleIn.addEventListener('input', e => { title = e.target.value; });
 
@@ -205,7 +193,6 @@ export function buildWfTaskRow(workflow, task) {
       if (!title.trim()) { titleIn.focus(); return; }
       updateWorkflowTask(workflow.id, task.id, {
         nature: chosenNature,
-        subNature: subNature.trim(),
         title: title.trim(),
         // waitingSince marks when the wait started, not applicable to actions
         waitingSince: chosenNature === 'waiting' ? TODAY : '',
@@ -217,7 +204,6 @@ export function buildWfTaskRow(workflow, task) {
     const row = h('div', { class: 'wft-row wft-pending' },
       h('div', { class: 'wft-pending-label' }, '↪ Follow-on task'),
       h('div', { class: 'wft-nature-picker' }, actionBtn, waitingBtn),
-      subNatureIn,
       titleIn,
       h('div', { class: 'wft-add-actions' }, confirmBtn, cancelBtn),
     );
@@ -295,7 +281,6 @@ export function buildWfTaskRow(workflow, task) {
     const statusIcon  = task.status === 'closed' ? '✓' : '↪';
     const statusClass = task.status === 'closed' ? 'wft-icon-closed' : 'wft-icon-done-new';
     const natureLabel = task.nature === 'action' ? 'Action' : 'Waiting';
-    const subLabel    = task.subNature ? ` · ${task.subNature}` : '';
     const reopenBtn = h('button', {
       class: 'wft-reopen-btn',
       title: 'Reopen task',
@@ -304,7 +289,7 @@ export function buildWfTaskRow(workflow, task) {
 
     return h('div', { class: 'wft-row wft-closed' },
       h('span', { class: `wft-status-dot ${statusClass}` }, statusIcon),
-      h('span', { class: 'wft-closed-nature' }, `${natureLabel}${subLabel}`),
+      h('span', { class: 'wft-closed-nature' }, natureLabel),
       h('span', { class: 'wft-closed-title' }, task.title || '(untitled)'),
       task.closedAt ? h('span', { class: 'wft-closed-date' }, task.closedAt) : null,
       reopenBtn,
@@ -318,10 +303,9 @@ export function buildWfTaskRow(workflow, task) {
 
   const isAction    = task.nature === 'action';
   const natureLabel = isAction ? '▶ Action' : '⏳ Waiting';
-  const subLabel    = task.subNature ? ` · ${task.subNature}` : '';
 
   const natureBadge = h('span', { class: `wft-nature-badge ${isAction ? 'wft-action' : 'wft-waiting'}` },
-    natureLabel + subLabel,
+    natureLabel,
   );
 
   const titleInput = h('input', { class: 'wft-title-input', value: task.title, placeholder: 'Task title…' });
@@ -388,7 +372,6 @@ export function buildWfTaskRow(workflow, task) {
 
 function buildAddWfTaskForm(workflow, container) {
   let nature = 'action';
-  let subNature = '';
   let title = '';
   let dueDate = '';
   let priority = 5;
@@ -440,9 +423,6 @@ function buildAddWfTaskForm(workflow, container) {
     waitingFields.style.display = ''; actionFields.style.display = 'none';
   });
 
-  const subNatureIn = h('input', { class: 'wft-add-input', placeholder: 'Sub-type (e.g. Draft, Review, Approval)' });
-  subNatureIn.addEventListener('input', e => { subNature = e.target.value; });
-
   const titleIn = h('input', { class: 'wft-add-input wft-add-title', placeholder: 'Task title' });
   titleIn.addEventListener('input', e => { title = e.target.value; });
 
@@ -451,7 +431,6 @@ function buildAddWfTaskForm(workflow, container) {
     const mins = Math.max(15, Math.round(parseFloat(timeHrs) * 60 / 15) * 15) || 60;
     addWorkflowTask(workflow.id, {
       nature,
-      subNature: subNature.trim(),
       title: title.trim(),
       dueDate:      nature === 'action'  ? dueDate : '',
       priority:     nature === 'action'  ? priority : '',
@@ -467,7 +446,6 @@ function buildAddWfTaskForm(workflow, container) {
   const form = h('div', { class: 'wft-add-form' },
     h('div', { class: 'wft-add-row wft-add-top' },
       h('div', { class: 'wft-nature-picker' }, actionBtn, waitingBtn),
-      subNatureIn,
     ),
     h('div', { class: 'wft-add-field wft-add-title-field' }, titleIn),
     actionFields,

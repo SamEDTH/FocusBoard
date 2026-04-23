@@ -561,24 +561,52 @@ export function addCategory(name) {
 // ── Project Bible & Budget ─────────────────────────────────────────────────────
 
 const DEFAULT_BIBLE_SECTIONS = [
-  { title: 'Project Summary', rows: [
-    { label: 'Project Name', value: '' }, { label: 'SPV / Entity', value: '' },
-    { label: 'Project Type', value: '' }, { label: 'Capacity (MW)', value: '' },
-    { label: 'Stage / Status', value: '' }, { label: 'Local Planning Authority', value: '' },
+  { title: 'Project Summary', cols: 3, rows: [
+    { label: 'Project Name',    value: '' },
+    { label: 'SPV Name',        value: '' },
+    { label: 'Project Type',    value: '' },
+    { label: 'Connection (MW)', value: '' },
+    { label: 'Connection Date', value: '' },
+    { label: 'Trigger Date',    value: '' },
+    { label: 'DM',              value: '' },
   ]},
-  { title: 'Location', rows: [
-    { label: 'Address', value: '' }, { label: 'Grid Reference', value: '' },
-    { label: 'Site Area (acres)', value: '' }, { label: 'Land Owner', value: '' },
+  { title: 'Location & Description', cols: 2, rows: [
+    { label: 'Site Address',             value: '' },
+    { label: 'Grid Reference',           value: '' },
+    { label: 'Local Planning Authority', value: '' },
+    { label: 'Parish Council',           value: '' },
+    { label: 'Site Access',              value: '' },
+    { label: 'Description of Development', value: '' },
   ]},
-  { title: 'Grid Connection', rows: [
-    { label: 'DNO', value: '' }, { label: 'Contracted Capacity (MW)', value: '' },
-    { label: 'Connection Point', value: '' }, { label: 'Target Connection Date', value: '' },
-    { label: 'ENA Reference', value: '' },
+  { title: 'Site Analysis', cols: 1, rows: [
+    { label: 'Residential Receptors',  value: '' },
+    { label: 'Topography',             value: '' },
+    { label: 'Public Access Routes',   value: '' },
+    { label: 'Cumulative Development', value: '' },
   ]},
-  { title: 'Programme', rows: [
-    { label: 'Planning Submission', value: '' }, { label: 'Planning Determination', value: '' },
-    { label: 'FID', value: '' }, { label: 'Construction Start', value: '' },
-    { label: 'Commercial Operation', value: '' },
+  { title: 'Grid Connection', cols: 2, rows: [
+    { label: 'Point of Connection (POC)', value: '' },
+    { label: 'Connection Type',           value: '' },
+    { label: 'Distance to POC',           value: '' },
+    { label: 'Cable Route',               value: '' },
+    { label: 'Batteries',                 value: '' },
+    { label: 'Fencing',                   value: '' },
+    { label: 'Substation / Switchgear',   value: '' },
+  ]},
+  { title: 'Legal Key Terms', cols: 1, rows: [
+    { label: 'Option Period',   value: '' },
+    { label: 'Option Fee',      value: '' },
+    { label: 'Option Fee Due',  value: '' },
+    { label: 'Rent',            value: '' },
+    { label: 'Expansion Rent',  value: '' },
+    { label: 'Tenant',          value: '' },
+  ]},
+  { title: 'Programme Key Dates', cols: 2, rows: [
+    { label: 'Planning Submission',           value: '' },
+    { label: 'Planning Consent',              value: '' },
+    { label: 'Financial Investment Decision', value: '' },
+    { label: 'Connection Date',               value: '' },
+    { label: 'RTB',                           value: '' },
   ]},
 ];
 
@@ -586,6 +614,7 @@ function makeBibleSections() {
   return DEFAULT_BIBLE_SECTIONS.map(s => ({
     id: uid(),
     title: s.title,
+    cols: s.cols || 1,
     rows: s.rows.map(r => ({ id: uid(), label: r.label, value: r.value })),
   }));
 }
@@ -643,6 +672,21 @@ export function updateBibleSectionTitle(catId, sectionId, title) {
   upd(newData);
 }
 
+export function updateBibleSection(catId, sectionId, patch) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  const sec = cat?.bible?.sections?.find(s => s.id === sectionId);
+  if (sec) Object.assign(sec, patch);
+  upd(newData);
+}
+
+export function updateBibleGateway(catId, stage) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (cat?.bible) cat.bible.gatewayStage = stage;
+  upd(newData);
+}
+
 export function deleteBibleSection(catId, sectionId) {
   const newData = JSON.parse(JSON.stringify(S.data));
   const cat = newData[S.panel].categories.find(c => c.id === catId);
@@ -664,7 +708,21 @@ export function updateBibleRow(catId, sectionId, rowId, patch) {
   const cat = newData[S.panel].categories.find(c => c.id === catId);
   const sec = cat?.bible?.sections?.find(s => s.id === sectionId);
   const row = sec?.rows?.find(r => r.id === rowId);
-  if (row) Object.assign(row, patch);
+  if (row) {
+    Object.assign(row, patch);
+    // Cascade linked fields to all invoices in this category
+    if ('value' in patch && row.label) {
+      const lbl = row.label.toLowerCase().trim();
+      const invoiceField =
+        (lbl === 'project name' || lbl === 'project') ? 'project' :
+        (lbl === 'spv name'    || lbl === 'spv')      ? 'spvName' :
+        (lbl === 'dm'          || lbl === 'development manager' || lbl === 'project manager') ? 'dm' :
+        null;
+      if (invoiceField && cat?.budget?.invoices) {
+        cat.budget.invoices.forEach(inv => { inv[invoiceField] = patch.value ?? ''; });
+      }
+    }
+  }
   upd(newData);
 }
 

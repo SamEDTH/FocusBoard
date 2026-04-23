@@ -35,10 +35,10 @@ const dayLabel = n => {
 export const DEFAULT = {
   work: {
     categories: [
-      { id: 'clients',  name: 'Clients'      },
-      { id: 'internal', name: 'Internal'      },
-      { id: 'finance',  name: 'Finance'       },
-      { id: 'bizdev',   name: 'Business dev'  },
+      { id: 'clients',  name: 'Project 1' },
+      { id: 'internal', name: 'Project 2' },
+      { id: 'finance',  name: 'Project 3' },
+      { id: 'bizdev',   name: 'Project 4' },
     ],
     items: [
 
