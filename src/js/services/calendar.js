@@ -12,6 +12,22 @@ import { getGoogleProviderToken, isSupabaseConfigured } from './supabase.js';
 
 const CAL_KEY = 'focusboard_calendar';
 
+// ── Timezone helper ───────────────────────────────────────────────────────────
+
+/** Returns the local UTC offset string, e.g. '+01:00' for BST, '-05:00' for EST. */
+function localTzOffset() {
+  const off = new Date().getTimezoneOffset(); // minutes, positive = west of UTC
+  const abs  = Math.abs(off);
+  const sign = off <= 0 ? '+' : '-';
+  return `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
+}
+
+/** Builds a RFC3339 datetime string for the start/end of a local date. */
+function localDayBounds(dateStr) {
+  const tz = localTzOffset();
+  return { start: `${dateStr}T00:00:00${tz}`, end: `${dateStr}T23:59:59${tz}` };
+}
+
 // ── Persistence ───────────────────────────────────────────────────────────────
 
 function load() {
@@ -328,9 +344,7 @@ function normaliseEvents(items, provider) {
 // ── Unified API ───────────────────────────────────────────────────────────────
 
 export async function getEvents(dateStr) {
-  // Use local-time boundaries so events aren't missed near midnight in non-UTC timezones
-  const start = `${dateStr}T00:00:00`;
-  const end   = `${dateStr}T23:59:59`;
+  const { start, end } = localDayBounds(dateStr);
   if (isGoogleConnected())  return getGoogleEvents(start, end);
   if (isOutlookConnected()) return getOutlookEvents(start, end);
   return [];
@@ -375,8 +389,8 @@ export async function syncFocusSessions(tasks) {
 
   const qs = new URLSearchParams({
     q: '[Focus]',
-    timeMin:       `${dateFmt(yesterday)}T00:00:00`,
-    timeMax:       `${dateFmt(inSixty)}T23:59:59`,
+    timeMin:       `${dateFmt(yesterday)}T00:00:00${localTzOffset()}`,
+    timeMax:       `${dateFmt(inSixty)}T23:59:59${localTzOffset()}`,
     singleEvents:  'true',
     maxResults:    '250',
     showDeleted:   'false',
@@ -533,8 +547,7 @@ async function getOutlookBusyPeriods(startISO, endISO) {
  * Used by the priority competition system to gauge calendar pressure.
  */
 export async function getTotalFreeMinutes(dateStr, workStart = '09:30', workEnd = '17:30', bufferMins = 15) {
-  const startISO = `${dateStr}T00:00:00`;
-  const endISO   = `${dateStr}T23:59:59`;
+  const { start: startISO, end: endISO } = localDayBounds(dateStr);
 
   let rawBusy = [];
   if (isGoogleConnected())       rawBusy = await getGoogleBusyPeriods(startISO, endISO);
@@ -571,8 +584,7 @@ export async function getTotalFreeMinutes(dateStr, workStart = '09:30', workEnd 
 }
 
 export async function getFreeSlots(dateStr, durationMins, workStart = '09:30', workEnd = '17:30', bufferMins = 15) {
-  const startISO = `${dateStr}T00:00:00`;
-  const endISO   = `${dateStr}T23:59:59`;
+  const { start: startISO, end: endISO } = localDayBounds(dateStr);
 
   // Fetch busy periods from ALL calendars
   let rawBusy = [];

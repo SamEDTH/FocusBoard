@@ -20463,6 +20463,16 @@ ${suffix}`;
 
   // src/js/services/calendar.js
   var CAL_KEY = "focusboard_calendar";
+  function localTzOffset() {
+    const off = (/* @__PURE__ */ new Date()).getTimezoneOffset();
+    const abs = Math.abs(off);
+    const sign = off <= 0 ? "+" : "-";
+    return `${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
+  }
+  function localDayBounds(dateStr) {
+    const tz = localTzOffset();
+    return { start: `${dateStr}T00:00:00${tz}`, end: `${dateStr}T23:59:59${tz}` };
+  }
   function load() {
     try {
       return JSON.parse(localStorage.getItem(CAL_KEY) || "{}");
@@ -20743,8 +20753,7 @@ ${suffix}`;
     }));
   }
   async function getEvents(dateStr) {
-    const start = `${dateStr}T00:00:00`;
-    const end = `${dateStr}T23:59:59`;
+    const { start, end } = localDayBounds(dateStr);
     if (isGoogleConnected()) return getGoogleEvents(start, end);
     if (isOutlookConnected()) return getOutlookEvents(start, end);
     return [];
@@ -20777,8 +20786,8 @@ ${suffix}`;
     }
     const qs = new URLSearchParams({
       q: "[Focus]",
-      timeMin: `${dateFmt(yesterday)}T00:00:00`,
-      timeMax: `${dateFmt(inSixty)}T23:59:59`,
+      timeMin: `${dateFmt(yesterday)}T00:00:00${localTzOffset()}`,
+      timeMax: `${dateFmt(inSixty)}T23:59:59${localTzOffset()}`,
       singleEvents: "true",
       maxResults: "250",
       showDeleted: "false"
@@ -20884,8 +20893,7 @@ ${suffix}`;
     return events.map((e) => ({ start: e.start, end: e.end }));
   }
   async function getTotalFreeMinutes(dateStr, workStart = "09:30", workEnd = "17:30", bufferMins = 15) {
-    const startISO = `${dateStr}T00:00:00`;
-    const endISO = `${dateStr}T23:59:59`;
+    const { start: startISO, end: endISO } = localDayBounds(dateStr);
     let rawBusy = [];
     if (isGoogleConnected()) rawBusy = await getGoogleBusyPeriods(startISO, endISO);
     else if (isOutlookConnected()) rawBusy = await getOutlookBusyPeriods(startISO, endISO);
@@ -20913,8 +20921,7 @@ ${suffix}`;
     return Math.round(freeMs / 6e4);
   }
   async function getFreeSlots(dateStr, durationMins, workStart = "09:30", workEnd = "17:30", bufferMins = 15) {
-    const startISO = `${dateStr}T00:00:00`;
-    const endISO = `${dateStr}T23:59:59`;
+    const { start: startISO, end: endISO } = localDayBounds(dateStr);
     let rawBusy = [];
     if (isGoogleConnected()) rawBusy = await getGoogleBusyPeriods(startISO, endISO);
     else if (isOutlookConnected()) rawBusy = await getOutlookBusyPeriods(startISO, endISO);
