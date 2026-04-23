@@ -20956,6 +20956,8 @@ Notes: ${task.notes}` : ""
     // 'overdue' | 'dueToday' | 'upcoming' | 'chaseDue' | 'awaitingReply' | 'completed' | null
     dashTab: "all",
     // 'all' | 'today' | 'week'
+    catTab: "tasks",
+    // 'tasks' | 'bible' | 'budget' | 'invoices'
     focusBuffer: savedSettings.focusBuffer ?? 15,
     focusMinBlock: savedSettings.focusMinBlock ?? 30,
     followUpDays: savedSettings.followUpDays ?? 5,
@@ -21089,7 +21091,7 @@ Notes: ${task.notes}` : ""
     set({ panel, view: "dashboard", activeCat: null, filter: "all", showAddItem: false, showAddCat: false, dashFilter: null, dashTab: "all" });
   }
   function gotoCategory(id) {
-    set({ view: "category", activeCat: id, filter: "all", showAddItem: false, showAddCat: false, dashFilter: null });
+    set({ view: "category", activeCat: id, filter: "all", showAddItem: false, showAddCat: false, dashFilter: null, catTab: "tasks" });
   }
   function gotoDashboard() {
     set({ view: "dashboard", activeCat: null, filter: "all", showAddItem: false, showAddCat: false, dashFilter: null, dashTab: "all" });
@@ -21333,6 +21335,186 @@ Notes: ${task.notes}` : ""
       name
     });
     set({ showAddCat: false });
+    upd(newData);
+  }
+  var DEFAULT_BIBLE_SECTIONS = [
+    { title: "Project Summary", rows: [
+      { label: "Project Name", value: "" },
+      { label: "SPV / Entity", value: "" },
+      { label: "Project Type", value: "" },
+      { label: "Capacity (MW)", value: "" },
+      { label: "Stage / Status", value: "" },
+      { label: "Local Planning Authority", value: "" }
+    ] },
+    { title: "Location", rows: [
+      { label: "Address", value: "" },
+      { label: "Grid Reference", value: "" },
+      { label: "Site Area (acres)", value: "" },
+      { label: "Land Owner", value: "" }
+    ] },
+    { title: "Grid Connection", rows: [
+      { label: "DNO", value: "" },
+      { label: "Contracted Capacity (MW)", value: "" },
+      { label: "Connection Point", value: "" },
+      { label: "Target Connection Date", value: "" },
+      { label: "ENA Reference", value: "" }
+    ] },
+    { title: "Programme", rows: [
+      { label: "Planning Submission", value: "" },
+      { label: "Planning Determination", value: "" },
+      { label: "FID", value: "" },
+      { label: "Construction Start", value: "" },
+      { label: "Commercial Operation", value: "" }
+    ] }
+  ];
+  function makeBibleSections() {
+    return DEFAULT_BIBLE_SECTIONS.map((s) => ({
+      id: uid(),
+      title: s.title,
+      rows: s.rows.map((r) => ({ id: uid(), label: r.label, value: r.value }))
+    }));
+  }
+  function migrateBible(bible) {
+    if (Array.isArray(bible.sections)) return bible;
+    const toSection = (title, obj) => ({
+      id: uid(),
+      title,
+      rows: Object.entries(obj || {}).map(([label, value]) => ({ id: uid(), label, value: value || "" }))
+    });
+    return {
+      sections: [
+        toSection("Project Summary", bible.summary),
+        toSection("Location", bible.location),
+        toSection("Grid Connection", bible.grid),
+        toSection("Programme", bible.programme)
+      ].filter((s) => s.rows.length > 0),
+      contacts: Array.isArray(bible.contacts) ? bible.contacts : []
+    };
+  }
+  function enableCategoryFeature(catId, feature) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat) return;
+    if (feature === "bible") {
+      if (!cat.bible) {
+        cat.bible = { sections: makeBibleSections(), contacts: [] };
+      } else if (!Array.isArray(cat.bible.sections)) {
+        cat.bible = migrateBible(cat.bible);
+      }
+    }
+    if (feature === "budget" && !cat.budget) {
+      cat.budget = { consultants: [], invoices: [] };
+    }
+    upd(newData);
+    set({ catTab: feature });
+  }
+  function addBibleSection(catId) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat?.bible) return;
+    cat.bible.sections.push({ id: uid(), title: "New Section", rows: [] });
+    upd(newData);
+  }
+  function updateBibleSectionTitle(catId, sectionId, title) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    const sec = cat?.bible?.sections?.find((s) => s.id === sectionId);
+    if (sec) sec.title = title;
+    upd(newData);
+  }
+  function deleteBibleSection(catId, sectionId) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat?.bible) return;
+    cat.bible.sections = cat.bible.sections.filter((s) => s.id !== sectionId);
+    upd(newData);
+  }
+  function addBibleRow(catId, sectionId) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    const sec = cat?.bible?.sections?.find((s) => s.id === sectionId);
+    if (sec) sec.rows.push({ id: uid(), label: "", value: "" });
+    upd(newData);
+  }
+  function updateBibleRow(catId, sectionId, rowId, patch) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    const sec = cat?.bible?.sections?.find((s) => s.id === sectionId);
+    const row = sec?.rows?.find((r) => r.id === rowId);
+    if (row) Object.assign(row, patch);
+    upd(newData);
+  }
+  function deleteBibleRow(catId, sectionId, rowId) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    const sec = cat?.bible?.sections?.find((s) => s.id === sectionId);
+    if (sec) sec.rows = sec.rows.filter((r) => r.id !== rowId);
+    upd(newData);
+  }
+  function addBibleContact(catId, contact) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat?.bible) return;
+    cat.bible.contacts = [...cat.bible.contacts || [], { id: uid(), ...contact }];
+    upd(newData);
+  }
+  function updateBibleContact(catId, contactId, patch) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat?.bible) return;
+    const idx = cat.bible.contacts.findIndex((c) => c.id === contactId);
+    if (idx >= 0) Object.assign(cat.bible.contacts[idx], patch);
+    upd(newData);
+  }
+  function deleteBibleContact(catId, contactId) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat?.bible) return;
+    cat.bible.contacts = cat.bible.contacts.filter((c) => c.id !== contactId);
+    upd(newData);
+  }
+  function addBudgetConsultant(catId, data) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat?.budget) return;
+    cat.budget.consultants = [...cat.budget.consultants, { id: uid(), ...data }];
+    upd(newData);
+  }
+  function updateBudgetConsultant(catId, consultantId, patch) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat?.budget) return;
+    const idx = cat.budget.consultants.findIndex((c) => c.id === consultantId);
+    if (idx >= 0) Object.assign(cat.budget.consultants[idx], patch);
+    upd(newData);
+  }
+  function deleteBudgetConsultant(catId, consultantId) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat?.budget) return;
+    cat.budget.consultants = cat.budget.consultants.filter((c) => c.id !== consultantId);
+    upd(newData);
+  }
+  function addBudgetInvoice(catId, data) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat?.budget) return;
+    cat.budget.invoices = [...cat.budget.invoices, { id: uid(), ...data }];
+    upd(newData);
+  }
+  function updateBudgetInvoice(catId, invoiceId, patch) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat?.budget) return;
+    const idx = cat.budget.invoices.findIndex((i) => i.id === invoiceId);
+    if (idx >= 0) Object.assign(cat.budget.invoices[idx], patch);
+    upd(newData);
+  }
+  function deleteBudgetInvoice(catId, invoiceId) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat?.budget) return;
+    cat.budget.invoices = cat.budget.invoices.filter((i) => i.id !== invoiceId);
     upd(newData);
   }
 
@@ -22039,7 +22221,7 @@ Notes: ${task.notes}` : ""
           );
         })()),
         row("Follow-up trigger", "Days before target return date to set chase date", (() => {
-          const inp = h("input", {
+          const inp2 = h("input", {
             type: "number",
             class: "wh-time-input",
             value: S.followUpDays ?? 5,
@@ -22047,8 +22229,8 @@ Notes: ${task.notes}` : ""
             max: "60",
             style: { width: "64px" }
           });
-          inp.addEventListener("change", (e) => updateFollowUpDays(Math.max(1, parseInt(e.target.value) || 5)));
-          return h("div", { class: "wh-row" }, inp, h("span", { class: "wh-sep" }, "days"));
+          inp2.addEventListener("change", (e) => updateFollowUpDays(Math.max(1, parseInt(e.target.value) || 5)));
+          return h("div", { class: "wh-row" }, inp2, h("span", { class: "wh-sep" }, "days"));
         })()),
         h("div", { class: "settings-section-heading" }, "Data"),
         h(
@@ -22317,7 +22499,7 @@ Notes: ${task.notes}` : ""
       "0 0 10 10",
       '<path d="M7 1.5l1.5 1.5L3 8.5H1.5V7L7 1.5Z" stroke="currentColor" stroke-width="1.1" fill="none" stroke-linejoin="round"/><path d="M6 2.5l1.5 1.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>'
     ));
-    const delBtn = h("button", {
+    const delBtn2 = h("button", {
       class: "cat-action-btn cat-delete-btn",
       title: "Delete",
       onClick: (e) => {
@@ -22348,7 +22530,7 @@ Notes: ${task.notes}` : ""
       h("span", { class: "sub-item-name" }, cat.name),
       count > 0 ? h("span", { class: "nav-count" }, count) : null,
       editBtn,
-      delBtn
+      delBtn2
     );
   }
   var SB_WIDTH_KEY = "fb_sidebar_w";
@@ -23487,7 +23669,7 @@ Notes: ${task.notes}` : ""
         formWrap.style.display = "";
         waitingFromIn.focus();
       } }, isChase ? "\u2713 Mark as chased" : "\u2713 Mark as sent");
-      const delBtn2 = h("button", {
+      const delBtn3 = h("button", {
         class: "wft-del-btn",
         title: "Delete",
         onClick: (e) => {
@@ -23503,7 +23685,7 @@ Notes: ${task.notes}` : ""
           { class: "wft-send-header" },
           h("span", { class: "wft-send-badge" }, badge),
           h("span", { class: "wft-send-title" }, displayTitle),
-          h("div", { class: "wft-header-actions" }, sentBtn, delBtn2)
+          h("div", { class: "wft-header-actions" }, sentBtn, delBtn3)
         ),
         formWrap
       );
@@ -23567,7 +23749,7 @@ Notes: ${task.notes}` : ""
         completeWorkflowTaskWithActions(workflow.id, task.id);
       }
     }, "\u21AA More to do");
-    const delBtn = h("button", {
+    const delBtn2 = h("button", {
       class: "wft-del-btn",
       title: "Delete task",
       onClick: (e) => {
@@ -23590,7 +23772,7 @@ Notes: ${task.notes}` : ""
       natureBadge,
       titleInput,
       clBadge,
-      h("div", { class: "wft-header-actions" }, closeBtn, sendBtn, doneNewBtn, delBtn),
+      h("div", { class: "wft-header-actions" }, closeBtn, sendBtn, doneNewBtn, delBtn2),
       toggleBtn
     );
     const body = h("div", { class: `wft-body-wrap${expanded ? " open" : ""}` });
@@ -24203,6 +24385,415 @@ Notes: ${task.notes}` : ""
     );
   }
 
+  // src/js/components/bibleView.js
+  function buildRow(catId, sectionId, row) {
+    const labelInp = h("input", { class: "bv-row-label", value: row.label, placeholder: "Field name" });
+    labelInp.addEventListener("change", (e) => updateBibleRow(catId, sectionId, row.id, { label: e.target.value }));
+    const valueInp = h("input", { class: "bv-row-value", value: row.value, placeholder: "\u2014" });
+    valueInp.addEventListener("change", (e) => updateBibleRow(catId, sectionId, row.id, { value: e.target.value }));
+    const del = h("button", { class: "bv-del-btn", title: "Remove row" }, "\xD7");
+    del.addEventListener("click", () => deleteBibleRow(catId, sectionId, row.id));
+    return h("div", { class: "bv-row" }, labelInp, valueInp, del);
+  }
+  function buildSection(catId, section) {
+    const titleInp = h("input", { class: "bv-section-title", value: section.title, placeholder: "Section title" });
+    titleInp.addEventListener("change", (e) => updateBibleSectionTitle(catId, section.id, e.target.value.trim() || section.title));
+    const addRowBtn = h("button", { class: "bv-action-btn", title: "Add row" }, "+ Row");
+    addRowBtn.addEventListener("click", () => addBibleRow(catId, section.id));
+    const delSectionBtn = h("button", { class: "bv-action-btn bv-action-del", title: "Delete section" }, "\xD7 Section");
+    delSectionBtn.addEventListener("click", () => deleteBibleSection(catId, section.id));
+    const header = h(
+      "div",
+      { class: "bv-section-header" },
+      titleInp,
+      h("div", { class: "bv-section-actions" }, addRowBtn, delSectionBtn)
+    );
+    const body = h(
+      "div",
+      { class: "bv-section-body" },
+      ...section.rows.map((r) => buildRow(catId, section.id, r))
+    );
+    return h("div", { class: "bv-section" }, header, body);
+  }
+  function buildContactsSection(catId, contacts) {
+    const rows = contacts.map((c) => {
+      const cell = (key, placeholder) => {
+        const inp2 = h("input", { class: "bv-contact-cell", value: c[key] || "", placeholder });
+        inp2.addEventListener("change", (e) => updateBibleContact(catId, c.id, { [key]: e.target.value.trim() }));
+        return h("td", null, inp2);
+      };
+      const del = h("button", { class: "bv-del-btn", title: "Remove" }, "\xD7");
+      del.addEventListener("click", () => deleteBibleContact(catId, c.id));
+      return h(
+        "tr",
+        null,
+        cell("role", "Role"),
+        cell("name", "Name"),
+        cell("company", "Company"),
+        cell("email", "Email"),
+        cell("phone", "Phone"),
+        h("td", { class: "bv-contact-del-cell" }, del)
+      );
+    });
+    const addBtn = h("button", { class: "bv-action-btn", style: { marginTop: "8px" } }, "+ Add contact");
+    addBtn.addEventListener("click", () => addBibleContact(catId, { role: "", name: "", company: "", email: "", phone: "" }));
+    return h(
+      "div",
+      { class: "bv-section" },
+      h(
+        "div",
+        { class: "bv-section-header" },
+        h("span", { class: "bv-section-title-fixed" }, "Key Contacts")
+      ),
+      h(
+        "div",
+        { class: "bv-section-body" },
+        contacts.length ? h(
+          "div",
+          { class: "bv-table-scroll" },
+          h(
+            "table",
+            { class: "bv-contacts-table" },
+            h("thead", null, h(
+              "tr",
+              null,
+              h("th", null, "Role"),
+              h("th", null, "Name"),
+              h("th", null, "Company"),
+              h("th", null, "Email"),
+              h("th", null, "Phone"),
+              h("th", null, "")
+            )),
+            h("tbody", null, ...rows)
+          )
+        ) : null,
+        addBtn
+      )
+    );
+  }
+  function buildBibleView(catId) {
+    const cat = getPanelData().categories.find((c) => c.id === catId);
+    const bible = cat?.bible || {};
+    const sections = Array.isArray(bible.sections) ? bible.sections : [];
+    const contacts = Array.isArray(bible.contacts) ? bible.contacts : [];
+    const frag = document.createDocumentFragment();
+    sections.forEach((sec) => frag.appendChild(buildSection(catId, sec)));
+    frag.appendChild(buildContactsSection(catId, contacts));
+    const addSecBtn = h("button", { class: "bv-add-section-btn" }, "+ Add section");
+    addSecBtn.addEventListener("click", () => addBibleSection(catId));
+    frag.appendChild(addSecBtn);
+    return frag;
+  }
+
+  // src/js/components/budgetView.js
+  var num = (v) => parseFloat(v) || 0;
+  var fmt3 = (v) => {
+    const n = num(v);
+    return n === 0 ? "\u2014" : "\xA3" + n.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  };
+  function inp(val, placeholder, onChange, type = "text") {
+    const el = h("input", { class: "bgt-inp", value: val ?? "", placeholder, type });
+    el.addEventListener("change", (e) => onChange(e.target.value));
+    if (type === "number") el.style.textAlign = "right";
+    return el;
+  }
+  function selStr(val, options, onChange) {
+    const el = h(
+      "select",
+      { class: "bgt-inp" },
+      ...options.map((o) => {
+        const opt = h("option", { value: o }, o);
+        if (o === val) opt.selected = true;
+        return opt;
+      })
+    );
+    el.addEventListener("change", (e) => onChange(e.target.value));
+    return el;
+  }
+  function selKV(val, options, onChange) {
+    const el = h(
+      "select",
+      { class: "bgt-inp" },
+      ...options.map((o) => {
+        const opt = h("option", { value: o.value }, o.label);
+        if (o.value === val) opt.selected = true;
+        return opt;
+      })
+    );
+    el.addEventListener("change", (e) => onChange(e.target.value));
+    return el;
+  }
+  function td(content, cls) {
+    return h("td", cls ? { class: cls } : null, content);
+  }
+  function calcTd(text, cls = "") {
+    return h("td", { class: `bgt-r bgt-auto${cls ? " " + cls : ""}` }, text);
+  }
+  function delBtn(onClick) {
+    const btn = h("button", { class: "bgt-del", title: "Remove" }, "\xD7");
+    btn.addEventListener("click", onClick);
+    return btn;
+  }
+  function getConsultantTotals(consultantId, invoices) {
+    const linked = invoices.filter((i) => i.consultantId === consultantId);
+    return {
+      invoiced: linked.reduce((s, i) => s + num(i.net) + num(i.vat), 0),
+      paid: linked.filter((i) => i.status === "Paid").reduce((s, i) => s + num(i.net) + num(i.vat), 0),
+      accounts: linked.filter((i) => ["Pending", "Approved", "Paid"].includes(i.status)).reduce((s, i) => s + num(i.net) + num(i.vat), 0)
+    };
+  }
+  function buildPivot(consultants, invoices) {
+    if (!consultants.length) return null;
+    const byCategory = {};
+    consultants.forEach((c) => {
+      const k = c.category || "Other";
+      if (!byCategory[k]) byCategory[k] = { quote: 0, budget: 0, paid: 0, invoiced: 0 };
+      const totals = getConsultantTotals(c.id, invoices);
+      const q = num(c.quote), b = q * (1 + num(c.contingencyPct) / 100);
+      byCategory[k].quote += q;
+      byCategory[k].budget += b;
+      byCategory[k].paid += totals.paid;
+      byCategory[k].invoiced += totals.invoiced;
+    });
+    const tots = Object.values(byCategory).reduce(
+      (t, v) => {
+        t.quote += v.quote;
+        t.budget += v.budget;
+        t.paid += v.paid;
+        t.invoiced += v.invoiced;
+        return t;
+      },
+      { quote: 0, budget: 0, paid: 0, invoiced: 0 }
+    );
+    const dataRow = (label, v, cls) => h(
+      "tr",
+      cls ? { class: cls } : null,
+      h("td", null, label),
+      h("td", { class: "bgt-r" }, fmt3(v.quote)),
+      h("td", { class: "bgt-r" }, fmt3(v.budget)),
+      h("td", { class: "bgt-r bgt-auto" }, fmt3(v.invoiced)),
+      h("td", { class: "bgt-r bgt-auto" }, fmt3(v.paid)),
+      h("td", { class: `bgt-r${v.budget - v.invoiced < 0 ? " bgt-over" : ""}` }, fmt3(v.budget - v.invoiced))
+    );
+    return h(
+      "div",
+      { class: "bgt-block" },
+      h("div", { class: "bgt-block-title" }, "Summary by Category"),
+      h(
+        "div",
+        { class: "bgt-scroll" },
+        h(
+          "table",
+          { class: "bgt-table bgt-pivot" },
+          h("thead", null, h(
+            "tr",
+            null,
+            h("th", null, "Category"),
+            h("th", { class: "bgt-r" }, "Quote"),
+            h("th", { class: "bgt-r" }, "Budget"),
+            h("th", { class: "bgt-r bgt-auto-hdr" }, "Invoiced \u2197"),
+            h("th", { class: "bgt-r bgt-auto-hdr" }, "Paid \u2197"),
+            h("th", { class: "bgt-r" }, "Balance")
+          )),
+          h("tbody", null, ...Object.entries(byCategory).map(([k, v]) => dataRow(k, v))),
+          h("tfoot", null, dataRow("Total", tots, "bgt-total"))
+        )
+      )
+    );
+  }
+  var APPOINTED = ["\u2014", "Yes", "No", "TBC"];
+  function buildConsultants(catId, consultants, invoices) {
+    const rows = consultants.map((c) => {
+      const upd2 = (patch) => updateBudgetConsultant(catId, c.id, patch);
+      const budget = num(c.quote) * (1 + num(c.contingencyPct) / 100);
+      const totals = getConsultantTotals(c.id, invoices);
+      const balance = num(c.quote) - totals.invoiced;
+      return h(
+        "tr",
+        null,
+        td(inp(c.party, "Party", (v) => upd2({ party: v }))),
+        td(inp(c.company, "Company", (v) => upd2({ company: v }))),
+        td(inp(c.contact, "Contact", (v) => upd2({ contact: v }))),
+        td(selStr(c.appointed || "\u2014", APPOINTED, (v) => upd2({ appointed: v }))),
+        td(inp(c.discipline, "Discipline", (v) => upd2({ discipline: v }))),
+        td(inp(c.category, "Category", (v) => upd2({ category: v }))),
+        td(inp(c.subCategory, "Sub-Category", (v) => upd2({ subCategory: v }))),
+        td(inp(c.quote, "0", (v) => upd2({ quote: v }), "number"), "bgt-r"),
+        td(inp(c.contingencyPct, "0", (v) => upd2({ contingencyPct: v }), "number"), "bgt-r"),
+        calcTd(fmt3(budget)),
+        calcTd(fmt3(totals.accounts)),
+        calcTd(fmt3(totals.paid)),
+        calcTd(fmt3(totals.invoiced)),
+        calcTd(fmt3(balance), balance < 0 ? "bgt-over" : ""),
+        td(inp(c.comments, "Notes", (v) => upd2({ comments: v }))),
+        td(delBtn(() => deleteBudgetConsultant(catId, c.id)), "bgt-del-cell")
+      );
+    });
+    const addBtn = h("button", { class: "bgt-add-btn" }, "+ Add consultant");
+    addBtn.addEventListener(
+      "click",
+      () => addBudgetConsultant(catId, {
+        party: "",
+        company: "",
+        contact: "",
+        appointed: "\u2014",
+        discipline: "",
+        category: "",
+        subCategory: "",
+        quote: "",
+        contingencyPct: "",
+        comments: ""
+      })
+    );
+    return h(
+      "div",
+      { class: "bgt-block" },
+      h("div", { class: "bgt-block-title" }, "Consultants"),
+      h(
+        "div",
+        { class: "bgt-scroll" },
+        h(
+          "table",
+          { class: "bgt-table" },
+          h("thead", null, h(
+            "tr",
+            null,
+            h("th", null, "Party"),
+            h("th", null, "Company"),
+            h("th", null, "Contact"),
+            h("th", null, "Appointed"),
+            h("th", null, "Discipline"),
+            h("th", null, "Category"),
+            h("th", null, "Sub-Category"),
+            h("th", { class: "bgt-r" }, "Quote \xA3"),
+            h("th", { class: "bgt-r" }, "Cont %"),
+            h("th", { class: "bgt-r bgt-auto-hdr" }, "Budget \xA3"),
+            h("th", { class: "bgt-r bgt-auto-hdr" }, "Accounts \xA3 \u2197"),
+            h("th", { class: "bgt-r bgt-auto-hdr" }, "Paid \xA3 \u2197"),
+            h("th", { class: "bgt-r bgt-auto-hdr" }, "Invoiced \xA3 \u2197"),
+            h("th", { class: "bgt-r bgt-auto-hdr" }, "Balance \xA3"),
+            h("th", null, "Comments"),
+            h("th", null, "")
+          )),
+          h("tbody", null, ...rows)
+        )
+      ),
+      addBtn
+    );
+  }
+  var STATUSES = ["Pending", "Approved", "Paid", "Disputed"];
+  function buildInvoiceTable(catId, invoices, consultants) {
+    const consultantOptions = [
+      { value: "", label: "\u2014 unlinked \u2014" },
+      ...consultants.map((c) => ({
+        value: c.id,
+        label: [c.party, c.company].filter(Boolean).join(" / ") || `Consultant ${c.id.slice(-4)}`
+      }))
+    ];
+    const rows = invoices.map((inv) => {
+      const upd2 = (patch) => updateBudgetInvoice(catId, inv.id, patch);
+      const total = num(inv.net) + num(inv.vat);
+      return h(
+        "tr",
+        null,
+        td(inp(inv.party, "Party", (v) => upd2({ party: v }))),
+        td(inp(inv.company, "Company", (v) => upd2({ company: v }))),
+        td(inp(inv.discipline, "Discipline", (v) => upd2({ discipline: v }))),
+        td(inp(inv.category, "Category", (v) => upd2({ category: v }))),
+        td(inp(inv.subCategory, "Sub-Category", (v) => upd2({ subCategory: v }))),
+        td(inp(inv.spvName, "SPV Name", (v) => upd2({ spvName: v }))),
+        td(inp(inv.invoiceDate, "", (v) => upd2({ invoiceDate: v }), "date")),
+        td(inp(inv.invoiceNumber, "Inv #", (v) => upd2({ invoiceNumber: v }))),
+        td(inp(inv.dueDate, "", (v) => upd2({ dueDate: v }), "date")),
+        td(selStr(inv.status || "Pending", STATUSES, (v) => upd2({ status: v }))),
+        td(inp(inv.net, "0", (v) => upd2({ net: v }), "number"), "bgt-r"),
+        td(inp(inv.vat, "0", (v) => upd2({ vat: v }), "number"), "bgt-r"),
+        td(h("span", { class: "bgt-calc" }, fmt3(total)), "bgt-r"),
+        td(inp(inv.accountsDate, "", (v) => upd2({ accountsDate: v }), "date")),
+        td(inp(inv.paidDate, "", (v) => upd2({ paidDate: v }), "date")),
+        td(inp(inv.comment, "Notes", (v) => upd2({ comment: v }))),
+        // Link to consultant — appended after data columns, does not affect import order
+        td(selKV(inv.consultantId || "", consultantOptions, (v) => upd2({ consultantId: v })), "bgt-link-cell"),
+        td(delBtn(() => deleteBudgetInvoice(catId, inv.id)), "bgt-del-cell")
+      );
+    });
+    const addBtn = h("button", { class: "bgt-add-btn" }, "+ Add invoice");
+    addBtn.addEventListener(
+      "click",
+      () => addBudgetInvoice(catId, {
+        party: "",
+        company: "",
+        discipline: "",
+        category: "",
+        subCategory: "",
+        spvName: "",
+        invoiceDate: "",
+        invoiceNumber: "",
+        dueDate: "",
+        status: "Pending",
+        net: "",
+        vat: "",
+        accountsDate: "",
+        paidDate: "",
+        comment: "",
+        consultantId: ""
+      })
+    );
+    return h(
+      "div",
+      { class: "bgt-block" },
+      h(
+        "div",
+        { class: "bgt-scroll" },
+        h(
+          "table",
+          { class: "bgt-table" },
+          h("thead", null, h(
+            "tr",
+            null,
+            h("th", null, "Party"),
+            h("th", null, "Company"),
+            h("th", null, "Discipline"),
+            h("th", null, "Category"),
+            h("th", null, "Sub-Category"),
+            h("th", null, "SPV Name"),
+            h("th", null, "Invoice Date"),
+            h("th", null, "Invoice #"),
+            h("th", null, "Due Date"),
+            h("th", null, "Status"),
+            h("th", { class: "bgt-r" }, "Net \xA3"),
+            h("th", { class: "bgt-r" }, "VAT \xA3"),
+            h("th", { class: "bgt-r" }, "Total \xA3"),
+            h("th", null, "Accounts Date"),
+            h("th", null, "Paid Date"),
+            h("th", null, "Comment"),
+            h("th", { class: "bgt-auto-hdr" }, "Linked To \u2197"),
+            h("th", null, "")
+          )),
+          h("tbody", null, ...rows)
+        )
+      ),
+      addBtn
+    );
+  }
+  function buildBudgetView(catId) {
+    const cat = getPanelData().categories.find((c) => c.id === catId);
+    const budget = cat?.budget || { consultants: [], invoices: [] };
+    const frag = document.createDocumentFragment();
+    const pivot = buildPivot(budget.consultants, budget.invoices);
+    if (pivot) frag.appendChild(pivot);
+    frag.appendChild(buildConsultants(catId, budget.consultants, budget.invoices));
+    return frag;
+  }
+  function buildInvoicesView(catId) {
+    const cat = getPanelData().categories.find((c) => c.id === catId);
+    const budget = cat?.budget || { consultants: [], invoices: [] };
+    const frag = document.createDocumentFragment();
+    frag.appendChild(h("div", { class: "bgt-block-title" }, "Payment Tracker"));
+    frag.appendChild(buildInvoiceTable(catId, budget.invoices, budget.consultants));
+    return frag;
+  }
+
   // src/js/render.js
   var _searchWasFocused = false;
   var _searchCaretPos = 0;
@@ -24343,17 +24934,54 @@ Notes: ${task.notes}` : ""
       children.push(bc);
     }
     if (S.view === "category") {
-      const filters = ["all", "tasks", "workflows", "awaiting", "unscheduled"];
-      children.push(h(
+      const catData = getPanelData().categories.find((c) => c.id === S.activeCat);
+      const hasBible = !!catData?.bible;
+      const hasBudget = !!catData?.budget;
+      const tabs = [
+        "tasks",
+        ...hasBible ? ["bible"] : [],
+        ...hasBudget ? ["budget"] : [],
+        ...hasBudget ? ["invoices"] : []
+      ];
+      const tabLabels = { tasks: "Tasks", bible: "Project Bible", budget: "Budget", invoices: "Invoices" };
+      const tabRow = h(
         "div",
-        { class: "filter-row" },
-        ...filters.map(
-          (f) => h("button", {
-            class: `filter-chip${S.filter === f ? " active" : ""}`,
-            onClick: () => set({ filter: f })
-          }, f[0].toUpperCase() + f.slice(1))
+        { class: "cat-tab-row" },
+        ...tabs.map(
+          (t) => h("button", {
+            class: `cat-tab-btn${S.catTab === t ? " active" : ""}`,
+            onClick: () => set({ catTab: t })
+          }, tabLabels[t])
         )
-      ));
+      );
+      if (!hasBible || !hasBudget) {
+        const enableBtns = [];
+        if (!hasBible) {
+          const b = h("button", { class: "cat-enable-btn" }, "+ Project Bible");
+          b.addEventListener("click", () => enableCategoryFeature(S.activeCat, "bible"));
+          enableBtns.push(b);
+        }
+        if (!hasBudget) {
+          const b = h("button", { class: "cat-enable-btn" }, "+ Budget & Invoices");
+          b.addEventListener("click", () => enableCategoryFeature(S.activeCat, "budget"));
+          enableBtns.push(b);
+        }
+        tabRow.appendChild(h("div", { class: "cat-enable-row" }, ...enableBtns));
+      }
+      children.push(tabRow);
+      if (S.catTab === "tasks") {
+        const filters = ["all", "tasks", "workflows", "awaiting", "unscheduled"];
+        children.push(h(
+          "div",
+          { class: "filter-row" },
+          ...filters.map(
+            (f) => h("button", {
+              class: `filter-chip${S.filter === f ? " active" : ""}`,
+              onClick: () => set({ filter: f })
+            }, f[0].toUpperCase() + f.slice(1))
+          )
+        ));
+      }
     }
     return children;
   }
@@ -24706,6 +25334,9 @@ Notes: ${task.notes}` : ""
     return [frag];
   }
   function buildCategoryView() {
+    if (S.catTab === "bible") return [buildBibleView(S.activeCat)];
+    if (S.catTab === "budget") return [buildBudgetView(S.activeCat)];
+    if (S.catTab === "invoices") return [buildInvoicesView(S.activeCat)];
     const items = getFilteredItems();
     if (!items.length) return [h("div", { class: "empty-state" }, "No items here")];
     const done = items.filter((i) => i.done);
@@ -24801,10 +25432,10 @@ Notes: ${task.notes}` : ""
     app.appendChild(main);
     if (S.showSettings) app.appendChild(buildSettings());
     if (_searchWasFocused) {
-      const inp = document.querySelector(".search-input");
-      if (inp) {
-        inp.focus();
-        inp.setSelectionRange(_searchCaretPos, _searchCaretPos);
+      const inp2 = document.querySelector(".search-input");
+      if (inp2) {
+        inp2.focus();
+        inp2.setSelectionRange(_searchCaretPos, _searchCaretPos);
       }
     }
   }

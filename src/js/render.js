@@ -1,4 +1,4 @@
-import { S, setRenderFn, getPanelData, getFilteredItems, getActiveCatName, set, toggleSidebar, gotoDashboard, loadCalFreeMinutes, initFromSupabase } from './store.js';
+import { S, setRenderFn, getPanelData, getFilteredItems, getActiveCatName, set, toggleSidebar, gotoDashboard, loadCalFreeMinutes, initFromSupabase, enableCategoryFeature } from './store.js';
 import { isSupabaseConfigured, onAuthStateChange } from './services/supabase.js';
 import { setGoogleFromSupabase } from './services/calendar.js';
 import { buildAuthGate } from './components/authGate.js';
@@ -11,6 +11,8 @@ import { buildSettings } from './components/settings.js';
 import { buildSidebar } from './components/sidebar.js';
 import { renderSections } from './components/card.js';
 import { buildCalendarView } from './components/calendarView.js';
+import { buildBibleView } from './components/bibleView.js';
+import { buildBudgetView, buildInvoicesView } from './components/budgetView.js';
 
 // ── Search focus restoration ──────────────────────────────────────────────────
 // Saved across renders so typing into the search bar doesn't lose the caret.
@@ -166,15 +168,56 @@ function buildPanelHeader() {
   }
 
   if (S.view === 'category') {
-    const filters = ['all', 'tasks', 'workflows', 'awaiting', 'unscheduled'];
-    children.push(h('div', { class: 'filter-row' },
-      ...filters.map(f =>
+    const catData = getPanelData().categories.find(c => c.id === S.activeCat);
+    const hasBible  = !!catData?.bible;
+    const hasBudget = !!catData?.budget;
+
+    // Budget enables both Budget + Invoices tabs together (shared data)
+    const tabs = [
+      'tasks',
+      ...(hasBible  ? ['bible']    : []),
+      ...(hasBudget ? ['budget']   : []),
+      ...(hasBudget ? ['invoices'] : []),
+    ];
+
+    const tabLabels = { tasks: 'Tasks', bible: 'Project Bible', budget: 'Budget', invoices: 'Invoices' };
+    const tabRow = h('div', { class: 'cat-tab-row' },
+      ...tabs.map(t =>
         h('button', {
-          class: `filter-chip${S.filter === f ? ' active' : ''}`,
-          onClick: () => set({ filter: f }),
-        }, f[0].toUpperCase() + f.slice(1)),
+          class: `cat-tab-btn${S.catTab === t ? ' active' : ''}`,
+          onClick: () => set({ catTab: t }),
+        }, tabLabels[t]),
       ),
-    ));
+    );
+
+    if (!hasBible || !hasBudget) {
+      const enableBtns = [];
+      if (!hasBible) {
+        const b = h('button', { class: 'cat-enable-btn' }, '+ Project Bible');
+        b.addEventListener('click', () => enableCategoryFeature(S.activeCat, 'bible'));
+        enableBtns.push(b);
+      }
+      if (!hasBudget) {
+        const b = h('button', { class: 'cat-enable-btn' }, '+ Budget & Invoices');
+        b.addEventListener('click', () => enableCategoryFeature(S.activeCat, 'budget'));
+        enableBtns.push(b);
+      }
+      tabRow.appendChild(h('div', { class: 'cat-enable-row' }, ...enableBtns));
+    }
+
+    children.push(tabRow);
+
+    if (S.catTab === 'tasks') {
+      const filters = ['all', 'tasks', 'workflows', 'awaiting', 'unscheduled'];
+      children.push(h('div', { class: 'filter-row' },
+        ...filters.map(f =>
+          h('button', {
+            class: `filter-chip${S.filter === f ? ' active' : ''}`,
+            onClick: () => set({ filter: f }),
+          }, f[0].toUpperCase() + f.slice(1)),
+        ),
+      ));
+    }
   }
 
   return children;
@@ -557,6 +600,10 @@ function buildDashboard() {
 // ── Category view content ─────────────────────────────────────────────────────
 
 function buildCategoryView() {
+  if (S.catTab === 'bible')    return [buildBibleView(S.activeCat)];
+  if (S.catTab === 'budget')   return [buildBudgetView(S.activeCat)];
+  if (S.catTab === 'invoices') return [buildInvoicesView(S.activeCat)];
+
   const items = getFilteredItems();
   if (!items.length) return [h('div', { class: 'empty-state' }, 'No items here')];
   const done  = items.filter(i => i.done);

@@ -97,6 +97,7 @@ export const S = {
   calWeekStart: null,
   dashFilter: null,   // 'overdue' | 'dueToday' | 'upcoming' | 'chaseDue' | 'awaitingReply' | 'completed' | null
   dashTab: 'all',     // 'all' | 'today' | 'week'
+  catTab: 'tasks',    // 'tasks' | 'bible' | 'budget' | 'invoices'
   focusBuffer:   savedSettings.focusBuffer   ?? 15,
   focusMinBlock: savedSettings.focusMinBlock ?? 30,
   followUpDays:  savedSettings.followUpDays  ?? 5,
@@ -258,7 +259,7 @@ export function switchPanel(panel) {
 }
 
 export function gotoCategory(id) {
-  set({ view: 'category', activeCat: id, filter: 'all', showAddItem: false, showAddCat: false, dashFilter: null });
+  set({ view: 'category', activeCat: id, filter: 'all', showAddItem: false, showAddCat: false, dashFilter: null, catTab: 'tasks' });
 }
 
 export function gotoDashboard() {
@@ -554,5 +555,198 @@ export function addCategory(name) {
     name,
   });
   set({ showAddCat: false });
+  upd(newData);
+}
+
+// ── Project Bible & Budget ─────────────────────────────────────────────────────
+
+const DEFAULT_BIBLE_SECTIONS = [
+  { title: 'Project Summary', rows: [
+    { label: 'Project Name', value: '' }, { label: 'SPV / Entity', value: '' },
+    { label: 'Project Type', value: '' }, { label: 'Capacity (MW)', value: '' },
+    { label: 'Stage / Status', value: '' }, { label: 'Local Planning Authority', value: '' },
+  ]},
+  { title: 'Location', rows: [
+    { label: 'Address', value: '' }, { label: 'Grid Reference', value: '' },
+    { label: 'Site Area (acres)', value: '' }, { label: 'Land Owner', value: '' },
+  ]},
+  { title: 'Grid Connection', rows: [
+    { label: 'DNO', value: '' }, { label: 'Contracted Capacity (MW)', value: '' },
+    { label: 'Connection Point', value: '' }, { label: 'Target Connection Date', value: '' },
+    { label: 'ENA Reference', value: '' },
+  ]},
+  { title: 'Programme', rows: [
+    { label: 'Planning Submission', value: '' }, { label: 'Planning Determination', value: '' },
+    { label: 'FID', value: '' }, { label: 'Construction Start', value: '' },
+    { label: 'Commercial Operation', value: '' },
+  ]},
+];
+
+function makeBibleSections() {
+  return DEFAULT_BIBLE_SECTIONS.map(s => ({
+    id: uid(),
+    title: s.title,
+    rows: s.rows.map(r => ({ id: uid(), label: r.label, value: r.value })),
+  }));
+}
+
+function migrateBible(bible) {
+  // Already new format
+  if (Array.isArray(bible.sections)) return bible;
+  // Convert old { summary:{}, location:{}, grid:{}, programme:{}, notes:'' } → sections[]
+  const toSection = (title, obj) => ({
+    id: uid(), title,
+    rows: Object.entries(obj || {}).map(([label, value]) => ({ id: uid(), label, value: value || '' })),
+  });
+  return {
+    sections: [
+      toSection('Project Summary', bible.summary),
+      toSection('Location',        bible.location),
+      toSection('Grid Connection', bible.grid),
+      toSection('Programme',       bible.programme),
+    ].filter(s => s.rows.length > 0),
+    contacts: Array.isArray(bible.contacts) ? bible.contacts : [],
+  };
+}
+
+export function enableCategoryFeature(catId, feature) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat) return;
+  if (feature === 'bible') {
+    if (!cat.bible) {
+      cat.bible = { sections: makeBibleSections(), contacts: [] };
+    } else if (!Array.isArray(cat.bible.sections)) {
+      cat.bible = migrateBible(cat.bible);
+    }
+  }
+  if (feature === 'budget' && !cat.budget) {
+    cat.budget = { consultants: [], invoices: [] };
+  }
+  upd(newData);
+  set({ catTab: feature });
+}
+
+export function addBibleSection(catId) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.bible) return;
+  cat.bible.sections.push({ id: uid(), title: 'New Section', rows: [] });
+  upd(newData);
+}
+
+export function updateBibleSectionTitle(catId, sectionId, title) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  const sec = cat?.bible?.sections?.find(s => s.id === sectionId);
+  if (sec) sec.title = title;
+  upd(newData);
+}
+
+export function deleteBibleSection(catId, sectionId) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.bible) return;
+  cat.bible.sections = cat.bible.sections.filter(s => s.id !== sectionId);
+  upd(newData);
+}
+
+export function addBibleRow(catId, sectionId) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  const sec = cat?.bible?.sections?.find(s => s.id === sectionId);
+  if (sec) sec.rows.push({ id: uid(), label: '', value: '' });
+  upd(newData);
+}
+
+export function updateBibleRow(catId, sectionId, rowId, patch) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  const sec = cat?.bible?.sections?.find(s => s.id === sectionId);
+  const row = sec?.rows?.find(r => r.id === rowId);
+  if (row) Object.assign(row, patch);
+  upd(newData);
+}
+
+export function deleteBibleRow(catId, sectionId, rowId) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  const sec = cat?.bible?.sections?.find(s => s.id === sectionId);
+  if (sec) sec.rows = sec.rows.filter(r => r.id !== rowId);
+  upd(newData);
+}
+
+export function addBibleContact(catId, contact) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.bible) return;
+  cat.bible.contacts = [...(cat.bible.contacts || []), { id: uid(), ...contact }];
+  upd(newData);
+}
+
+export function updateBibleContact(catId, contactId, patch) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.bible) return;
+  const idx = cat.bible.contacts.findIndex(c => c.id === contactId);
+  if (idx >= 0) Object.assign(cat.bible.contacts[idx], patch);
+  upd(newData);
+}
+
+export function deleteBibleContact(catId, contactId) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.bible) return;
+  cat.bible.contacts = cat.bible.contacts.filter(c => c.id !== contactId);
+  upd(newData);
+}
+
+export function addBudgetConsultant(catId, data) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.budget) return;
+  cat.budget.consultants = [...cat.budget.consultants, { id: uid(), ...data }];
+  upd(newData);
+}
+
+export function updateBudgetConsultant(catId, consultantId, patch) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.budget) return;
+  const idx = cat.budget.consultants.findIndex(c => c.id === consultantId);
+  if (idx >= 0) Object.assign(cat.budget.consultants[idx], patch);
+  upd(newData);
+}
+
+export function deleteBudgetConsultant(catId, consultantId) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.budget) return;
+  cat.budget.consultants = cat.budget.consultants.filter(c => c.id !== consultantId);
+  upd(newData);
+}
+
+export function addBudgetInvoice(catId, data) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.budget) return;
+  cat.budget.invoices = [...cat.budget.invoices, { id: uid(), ...data }];
+  upd(newData);
+}
+
+export function updateBudgetInvoice(catId, invoiceId, patch) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.budget) return;
+  const idx = cat.budget.invoices.findIndex(i => i.id === invoiceId);
+  if (idx >= 0) Object.assign(cat.budget.invoices[idx], patch);
+  upd(newData);
+}
+
+export function deleteBudgetInvoice(catId, invoiceId) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.budget) return;
+  cat.budget.invoices = cat.budget.invoices.filter(i => i.id !== invoiceId);
   upd(newData);
 }
