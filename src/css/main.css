@@ -553,6 +553,10 @@ body.light .badge-cal-pressure { background: #fff8e1; color: #7b5800; border: 1p
 
 .focus-sessions { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
 
+/* Past sessions — faded */
+.focus-pill-past { opacity: 0.45; }
+.focus-pill-past .focus-pill-time { text-decoration: line-through; }
+
 /* Focus pill sync states */
 .focus-pill-conflict {
   border-color: var(--error);

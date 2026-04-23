@@ -23575,14 +23575,33 @@ ${suffix}`;
       let pickerVisible = false;
       let pickerEl = null;
       if (hasSessions) {
+        const todayStr = (() => {
+          const d = /* @__PURE__ */ new Date();
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        })();
+        const ordinal = (n) => {
+          const s = ["th", "st", "nd", "rd"];
+          const v = n % 100;
+          return n + (s[(v - 20) % 10] || s[v] || s[0]);
+        };
+        const fullDate = (s) => {
+          const dateStr = s.date || s.startISO?.slice(0, 10);
+          if (!dateStr) return s.day || "";
+          const d = /* @__PURE__ */ new Date(`${dateStr}T00:00:00`);
+          return `${d.toLocaleDateString("en-GB", { weekday: "long" })} ${ordinal(d.getDate())}`;
+        };
         const pillsWrap = h("div", { class: "focus-sessions" });
         sessions.forEach((s, i) => {
           const sync = S.focusSyncMap?.[item.id]?.[i];
           const status = sync?.status;
+          const dateStr = s.date || s.startISO?.slice(0, 10);
+          const isPast = status === "past" || dateStr && dateStr < todayStr;
           let pillCls = "focus-pill";
           let badge = null;
           let hint = null;
-          if (status === "cancelled") {
+          if (isPast) {
+            pillCls += " focus-pill-past";
+          } else if (status === "cancelled") {
             pillCls += " focus-pill-conflict";
             badge = h("span", { class: "fp-sync-badge fp-sync-warn", title: "This focus block no longer appears in your calendar \u2014 it may have been overridden" }, "\u26A0");
             hint = h("span", { class: "fp-sync-hint" }, "Not in calendar");
@@ -23593,7 +23612,7 @@ ${suffix}`;
           }
           const pillChildren = [
             h("span", { class: "focus-pill-time" }, `${s.start} \u2013 ${s.end}`),
-            h("span", { class: "focus-pill-day" }, s.day),
+            h("span", { class: "focus-pill-day" }, fullDate(s)),
             badge,
             hint,
             h("button", {
@@ -23667,13 +23686,30 @@ ${suffix}`;
         ));
       }
       if (hasSessions) {
+        const todayStr2 = (() => {
+          const d = /* @__PURE__ */ new Date();
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        })();
+        const ordinal2 = (n) => {
+          const sv = ["th", "st", "nd", "rd"];
+          const v = n % 100;
+          return n + (sv[(v - 20) % 10] || sv[v] || sv[0]);
+        };
+        const fullDate2 = (s) => {
+          const ds = s.date || s.startISO?.slice(0, 10);
+          if (!ds) return s.day || "";
+          const d = /* @__PURE__ */ new Date(`${ds}T00:00:00`);
+          return `${d.toLocaleDateString("en-GB", { weekday: "long" })} ${ordinal2(d.getDate())}`;
+        };
         const pillsWrap = h("div", { class: "focus-sessions" });
         sessions.forEach((s) => {
+          const ds = s.date || s.startISO?.slice(0, 10);
+          const isPast = ds && ds < todayStr2;
           pillsWrap.appendChild(h(
             "div",
-            { class: "focus-pill" },
+            { class: `focus-pill${isPast ? " focus-pill-past" : ""}` },
             h("span", { class: "focus-pill-time" }, `${s.start} \u2013 ${s.end}`),
-            h("span", { class: "focus-pill-day" }, s.day)
+            h("span", { class: "focus-pill-day" }, fullDate2(s))
           ));
         });
         children.push(pillsWrap);
