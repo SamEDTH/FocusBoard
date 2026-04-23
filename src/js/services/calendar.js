@@ -328,8 +328,9 @@ function normaliseEvents(items, provider) {
 // ── Unified API ───────────────────────────────────────────────────────────────
 
 export async function getEvents(dateStr) {
-  const start = new Date(`${dateStr}T00:00:00`).toISOString();
-  const end   = new Date(`${dateStr}T23:59:59`).toISOString();
+  // Use local-time boundaries so events aren't missed near midnight in non-UTC timezones
+  const start = `${dateStr}T00:00:00`;
+  const end   = `${dateStr}T23:59:59`;
   if (isGoogleConnected())  return getGoogleEvents(start, end);
   if (isOutlookConnected()) return getOutlookEvents(start, end);
   return [];
@@ -361,7 +362,13 @@ async function getGoogleBusyPeriods(startISO, endISO) {
   let calIds = ['primary'];
   try {
     const calList = await googleFetch('/users/me/calendarList?minAccessRole=reader');
-    if (calList.items?.length) calIds = calList.items.map(c => c.id);
+    if (calList.items?.length) {
+      // Only include calendars that are selected (visible) and not read-only subscription calendars
+      calIds = calList.items
+        .filter(c => c.accessRole === 'owner' || c.accessRole === 'writer')
+        .map(c => c.id);
+      if (!calIds.length) calIds = ['primary'];
+    }
   } catch { /* use primary only */ }
 
   // Fetch timed events from every calendar in parallel
@@ -369,11 +376,20 @@ async function getGoogleBusyPeriods(startISO, endISO) {
     try {
       const params = new URLSearchParams({
         timeMin: startISO, timeMax: endISO,
-        singleEvents: 'true', maxResults: '100',
+        singleEvents: 'true', maxResults: '250',
+        showDeleted: 'false',
       });
       const data = await googleFetch(`/calendars/${encodeURIComponent(calId)}/events?${params}`);
       return (data.items || [])
-        .filter(e => !!e.start?.dateTime)   // exclude all-day events
+        .filter(e => {
+          if (!e.start?.dateTime) return false;           // exclude all-day events
+          if (e.status === 'cancelled') return false;     // exclude cancelled events
+          if (e.transparency === 'transparent') return false; // exclude "free" events
+          // Exclude events the user has declined
+          const selfAttendee = e.attendees?.find(a => a.self);
+          if (selfAttendee?.responseStatus === 'declined') return false;
+          return true;
+        })
         .map(e => ({
           start: new Date(e.start.dateTime).getTime(),
           end:   new Date(e.end.dateTime).getTime(),
@@ -399,8 +415,8 @@ async function getOutlookBusyPeriods(startISO, endISO) {
  * Used by the priority competition system to gauge calendar pressure.
  */
 export async function getTotalFreeMinutes(dateStr, workStart = '09:30', workEnd = '17:30', bufferMins = 15) {
-  const startISO = new Date(`${dateStr}T00:00:00`).toISOString();
-  const endISO   = new Date(`${dateStr}T23:59:59`).toISOString();
+  const startISO = `${dateStr}T00:00:00`;
+  const endISO   = `${dateStr}T23:59:59`;
 
   let rawBusy = [];
   if (isGoogleConnected())       rawBusy = await getGoogleBusyPeriods(startISO, endISO);
@@ -437,8 +453,8 @@ export async function getTotalFreeMinutes(dateStr, workStart = '09:30', workEnd 
 }
 
 export async function getFreeSlots(dateStr, durationMins, workStart = '09:30', workEnd = '17:30', bufferMins = 15) {
-  const startISO = new Date(`${dateStr}T00:00:00`).toISOString();
-  const endISO   = new Date(`${dateStr}T23:59:59`).toISOString();
+  const startISO = `${dateStr}T00:00:00`;
+  const endISO   = `${dateStr}T23:59:59`;
 
   // Fetch busy periods from ALL calendars
   let rawBusy = [];

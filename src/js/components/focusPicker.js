@@ -10,7 +10,11 @@ function nextDates(n) {
   for (let i = 0; i < n; i++) {
     const d = new Date();
     d.setDate(d.getDate() + i);
-    dates.push(d.toISOString().slice(0, 10));
+    // Use local date (not UTC) so dates don't shift for non-UTC timezones
+    const yyyy = d.getFullYear();
+    const mm   = String(d.getMonth() + 1).padStart(2, '0');
+    const dd   = String(d.getDate()).padStart(2, '0');
+    dates.push(`${yyyy}-${mm}-${dd}`);
   }
   return dates;
 }

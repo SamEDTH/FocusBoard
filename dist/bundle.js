@@ -20743,8 +20743,8 @@ ${suffix}`;
     }));
   }
   async function getEvents(dateStr) {
-    const start = (/* @__PURE__ */ new Date(`${dateStr}T00:00:00`)).toISOString();
-    const end = (/* @__PURE__ */ new Date(`${dateStr}T23:59:59`)).toISOString();
+    const start = `${dateStr}T00:00:00`;
+    const end = `${dateStr}T23:59:59`;
     if (isGoogleConnected()) return getGoogleEvents(start, end);
     if (isOutlookConnected()) return getOutlookEvents(start, end);
     return [];
@@ -20765,7 +20765,10 @@ Notes: ${task.notes}` : ""
     let calIds = ["primary"];
     try {
       const calList = await googleFetch("/users/me/calendarList?minAccessRole=reader");
-      if (calList.items?.length) calIds = calList.items.map((c) => c.id);
+      if (calList.items?.length) {
+        calIds = calList.items.filter((c) => c.accessRole === "owner" || c.accessRole === "writer").map((c) => c.id);
+        if (!calIds.length) calIds = ["primary"];
+      }
     } catch {
     }
     const results = await Promise.all(calIds.map(async (calId) => {
@@ -20774,10 +20777,18 @@ Notes: ${task.notes}` : ""
           timeMin: startISO,
           timeMax: endISO,
           singleEvents: "true",
-          maxResults: "100"
+          maxResults: "250",
+          showDeleted: "false"
         });
         const data = await googleFetch(`/calendars/${encodeURIComponent(calId)}/events?${params}`);
-        return (data.items || []).filter((e) => !!e.start?.dateTime).map((e) => ({
+        return (data.items || []).filter((e) => {
+          if (!e.start?.dateTime) return false;
+          if (e.status === "cancelled") return false;
+          if (e.transparency === "transparent") return false;
+          const selfAttendee = e.attendees?.find((a) => a.self);
+          if (selfAttendee?.responseStatus === "declined") return false;
+          return true;
+        }).map((e) => ({
           start: new Date(e.start.dateTime).getTime(),
           end: new Date(e.end.dateTime).getTime()
         }));
@@ -20792,8 +20803,8 @@ Notes: ${task.notes}` : ""
     return events.map((e) => ({ start: e.start, end: e.end }));
   }
   async function getTotalFreeMinutes(dateStr, workStart = "09:30", workEnd = "17:30", bufferMins = 15) {
-    const startISO = (/* @__PURE__ */ new Date(`${dateStr}T00:00:00`)).toISOString();
-    const endISO = (/* @__PURE__ */ new Date(`${dateStr}T23:59:59`)).toISOString();
+    const startISO = `${dateStr}T00:00:00`;
+    const endISO = `${dateStr}T23:59:59`;
     let rawBusy = [];
     if (isGoogleConnected()) rawBusy = await getGoogleBusyPeriods(startISO, endISO);
     else if (isOutlookConnected()) rawBusy = await getOutlookBusyPeriods(startISO, endISO);
@@ -20821,8 +20832,8 @@ Notes: ${task.notes}` : ""
     return Math.round(freeMs / 6e4);
   }
   async function getFreeSlots(dateStr, durationMins, workStart = "09:30", workEnd = "17:30", bufferMins = 15) {
-    const startISO = (/* @__PURE__ */ new Date(`${dateStr}T00:00:00`)).toISOString();
-    const endISO = (/* @__PURE__ */ new Date(`${dateStr}T23:59:59`)).toISOString();
+    const startISO = `${dateStr}T00:00:00`;
+    const endISO = `${dateStr}T23:59:59`;
     let rawBusy = [];
     if (isGoogleConnected()) rawBusy = await getGoogleBusyPeriods(startISO, endISO);
     else if (isOutlookConnected()) rawBusy = await getOutlookBusyPeriods(startISO, endISO);
@@ -22716,7 +22727,10 @@ Notes: ${task.notes}` : ""
     for (let i = 0; i < n; i++) {
       const d = /* @__PURE__ */ new Date();
       d.setDate(d.getDate() + i);
-      dates.push(d.toISOString().slice(0, 10));
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      dates.push(`${yyyy}-${mm}-${dd}`);
     }
     return dates;
   }
