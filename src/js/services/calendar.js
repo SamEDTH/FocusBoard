@@ -336,17 +336,53 @@ export async function getEvents(dateStr) {
   return [];
 }
 
-export async function bookFocusBlock(task, startISO, endISO) {
-  const notes = [
-    `Priority: ${task.priority || '—'}`,
-    `Due: ${task.dueDate || '—'}`,
-    `Time needed: ${task.timeNeeded ? Math.round(task.timeNeeded) + ' mins' : '—'}`,
-    task.notes ? `\nNotes: ${task.notes}` : '',
+/**
+ * Returns a "create event" URL for Google Calendar or Outlook.
+ * The event is pre-filled with the task title, duration, and notes.
+ * Epoch ms values are formatted as LOCAL time so the calendar shows
+ * the correct time without UTC conversion artefacts.
+ */
+export function buildCalendarCreateUrl(task, startMs, endMs) {
+  const title   = `🎯 ${task.title}`;
+  const durMins = Math.round((endMs - startMs) / 60_000);
+  const details = [
+    `Duration: ${durMins} min`,
+    task.dueDate ? `Due: ${task.dueDate}` : '',
+    task.notes   ? task.notes            : '',
   ].filter(Boolean).join('\n');
 
-  if (isGoogleConnected())  return createGoogleEvent(task.title, notes, startISO, endISO);
-  if (isOutlookConnected()) return createOutlookEvent(task.title, notes, startISO, endISO);
-  throw new Error('No calendar connected');
+  // Format epoch as local YYYYMMDDTHHMMSS (no Z = local time in Google)
+  const localCompact = ms => {
+    const d = new Date(ms);
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}00`;
+  };
+  // Format epoch as local ISO without Z (for Outlook)
+  const localISO = ms => {
+    const d = new Date(ms);
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00`;
+  };
+
+  if (isGoogleConnected()) {
+    const url = new URL('https://calendar.google.com/calendar/render');
+    url.searchParams.set('action',  'TEMPLATE');
+    url.searchParams.set('text',    title);
+    url.searchParams.set('dates',   `${localCompact(startMs)}/${localCompact(endMs)}`);
+    if (details) url.searchParams.set('details', details);
+    return url.toString();
+  }
+
+  if (isOutlookConnected()) {
+    const url = new URL('https://outlook.live.com/calendar/0/action/compose');
+    url.searchParams.set('subject',  title);
+    url.searchParams.set('startdt',  localISO(startMs));
+    url.searchParams.set('enddt',    localISO(endMs));
+    if (details) url.searchParams.set('body', details);
+    return url.toString();
+  }
+
+  return null;
 }
 
 // ── Busy period fetchers (all calendars) ─────────────────────────────────────

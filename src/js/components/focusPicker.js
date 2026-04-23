@@ -1,5 +1,5 @@
 import { h } from '../dom.js';
-import { getFreeSlots, bookFocusBlock, isAnyConnected } from '../services/calendar.js';
+import { getFreeSlots, buildCalendarCreateUrl, isAnyConnected } from '../services/calendar.js';
 import { addFocusSession, S } from '../store.js';
 import { showConfirm } from './confirm.js';
 
@@ -151,59 +151,59 @@ export function buildFocusPicker(task, onClose) {
     }
   }
 
-  // ── Confirm & book ────────────────────────────────────────────────────────
+  // ── Open in calendar & record ─────────────────────────────────────────────
 
   async function confirmSlot(slot) {
-    const start    = new Date(slot.startISO);
-    const end      = new Date(slot.endISO);
-    const dayStr   = start.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
-    const total    = totalSessions();
-    const isSplit  = total > 1;
-    const isLast   = bookedCount + 1 >= total;
+    const start   = new Date(slot.startISO);
+    const end     = new Date(slot.endISO);
+    const dayStr  = start.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
+    const total   = totalSessions();
+    const isSplit = total > 1;
+    const isLast  = bookedCount + 1 >= total;
+
+    const calUrl = buildCalendarCreateUrl(task, slot.startMs, slot.endMs);
 
     const ok = await showConfirm({
-      title: isSplit ? `Book session ${bookedCount + 1} of ${total}?` : 'Book focus block?',
+      title: isSplit ? `Open calendar — session ${bookedCount + 1} of ${total}` : 'Open in calendar',
       lines: [
         `Task: ${task.title}`,
-        `Time: ${dayStr}, ${fmt(start)} – ${fmt(end)}`,
+        `Suggested time: ${dayStr}, ${fmt(start)} – ${fmt(end)}`,
         `Duration: ${fmtMins(currentMins())}`,
+        calUrl
+          ? 'Your calendar will open with this event pre-filled — drag it to fit your day before saving.'
+          : 'Session will be saved to this task.',
         isSplit && !isLast
-          ? `${total - bookedCount - 1} more session${total - bookedCount - 1 !== 1 ? 's' : ''} to book after this`
+          ? `${total - bookedCount - 1} more session${total - bookedCount - 1 !== 1 ? 's' : ''} to schedule after this`
           : '',
       ].filter(Boolean),
-      confirmText: 'Book it',
+      confirmText: calUrl ? 'Open Calendar →' : 'Save session',
     });
     if (!ok) return;
 
-    slotArea.innerHTML = '';
-    statusEl.textContent = 'Booking…';
+    // Open the calendar create URL in a new tab
+    if (calUrl) window.open(calUrl, '_blank', 'noopener');
 
-    try {
-      await bookFocusBlock(task, slot.startISO, slot.endISO);
-      document.dispatchEvent(new CustomEvent('focusboard:focus-booked'));
-      const sessionData = {
-        day:      start.toLocaleDateString('en-GB', { weekday: 'short' }),
-        date:     slot.startISO.slice(0, 10),
-        start:    fmt(start),
-        end:      fmt(end),
-        startISO: slot.startISO,
-        endISO:   slot.endISO,
-      };
-      if (task._onBook) task._onBook(sessionData);
-      else addFocusSession(task.id, sessionData);
-      bookedCount++;
-      updateProgress();
+    // Record the session in Focusboard using the suggested slot time
+    const sessionData = {
+      day:      start.toLocaleDateString('en-GB', { weekday: 'short' }),
+      date:     start.toLocaleDateString('en-CA'),   // YYYY-MM-DD in local time
+      start:    fmt(start),
+      end:      fmt(end),
+      startISO: slot.startISO,
+      endISO:   slot.endISO,
+    };
+    if (task._onBook) task._onBook(sessionData);
+    else addFocusSession(task.id, sessionData);
+    bookedCount++;
+    updateProgress();
+    document.dispatchEvent(new CustomEvent('focusboard:focus-booked'));
 
-      if (bookedCount >= total) {
-        onClose();
-      } else {
-        statusEl.textContent = '';
-        statusEl.style.color = '#1D9E75';
-        statusEl.textContent = `✓ Session ${bookedCount} booked! Now pick a ${fmtMins(currentMins())} slot.`;
-        loadSlots(selectedDate);
-      }
-    } catch (err) {
-      statusEl.textContent = `Booking failed: ${err.message}`;
+    if (bookedCount >= total) {
+      onClose();
+    } else {
+      statusEl.style.color = '#1D9E75';
+      statusEl.textContent = `✓ Session ${bookedCount} opened in calendar! Now pick a ${fmtMins(currentMins())} slot.`;
+      loadSlots(selectedDate);
     }
   }
 

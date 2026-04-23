@@ -20655,18 +20655,6 @@ ${suffix}`;
     const data = await googleFetch(`/calendars/primary/events?${params}`);
     return normaliseEvents(data.items || [], "google");
   }
-  async function createGoogleEvent(title, body, startISO, endISO) {
-    return googleFetch("/calendars/primary/events", {
-      method: "POST",
-      body: JSON.stringify({
-        summary: `\u{1F3AF} ${title}`,
-        description: body,
-        start: { dateTime: startISO, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
-        end: { dateTime: endISO, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
-        colorId: "7"
-      })
-    });
-  }
   var MS_GRAPH = "https://graph.microsoft.com/v1.0";
   var MS_SCOPES = ["Calendars.ReadWrite"];
   var _msalInstance = null;
@@ -20721,19 +20709,6 @@ ${suffix}`;
     const data = await outlookFetch(`/me/calendarView?${params}`);
     return normaliseEvents(data.value || [], "outlook");
   }
-  async function createOutlookEvent(title, body, startISO, endISO) {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    return outlookFetch("/me/events", {
-      method: "POST",
-      body: JSON.stringify({
-        subject: `\u{1F3AF} ${title}`,
-        body: { contentType: "text", content: body },
-        start: { dateTime: startISO.replace("Z", ""), timeZone: tz },
-        end: { dateTime: endISO.replace("Z", ""), timeZone: tz },
-        categories: ["Focusboard"]
-      })
-    });
-  }
   function normaliseEvents(items, provider) {
     return items.filter((e) => provider === "google" ? !!e.start?.dateTime : !e.isAllDay).map((e) => ({
       id: e.id,
@@ -20749,17 +20724,41 @@ ${suffix}`;
     if (isOutlookConnected()) return getOutlookEvents(start, end);
     return [];
   }
-  async function bookFocusBlock(task, startISO, endISO) {
-    const notes = [
-      `Priority: ${task.priority || "\u2014"}`,
-      `Due: ${task.dueDate || "\u2014"}`,
-      `Time needed: ${task.timeNeeded ? Math.round(task.timeNeeded) + " mins" : "\u2014"}`,
-      task.notes ? `
-Notes: ${task.notes}` : ""
+  function buildCalendarCreateUrl(task, startMs, endMs) {
+    const title = `\u{1F3AF} ${task.title}`;
+    const durMins = Math.round((endMs - startMs) / 6e4);
+    const details = [
+      `Duration: ${durMins} min`,
+      task.dueDate ? `Due: ${task.dueDate}` : "",
+      task.notes ? task.notes : ""
     ].filter(Boolean).join("\n");
-    if (isGoogleConnected()) return createGoogleEvent(task.title, notes, startISO, endISO);
-    if (isOutlookConnected()) return createOutlookEvent(task.title, notes, startISO, endISO);
-    throw new Error("No calendar connected");
+    const localCompact = (ms) => {
+      const d = new Date(ms);
+      const p = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}00`;
+    };
+    const localISO = (ms) => {
+      const d = new Date(ms);
+      const p = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00`;
+    };
+    if (isGoogleConnected()) {
+      const url = new URL("https://calendar.google.com/calendar/render");
+      url.searchParams.set("action", "TEMPLATE");
+      url.searchParams.set("text", title);
+      url.searchParams.set("dates", `${localCompact(startMs)}/${localCompact(endMs)}`);
+      if (details) url.searchParams.set("details", details);
+      return url.toString();
+    }
+    if (isOutlookConnected()) {
+      const url = new URL("https://outlook.live.com/calendar/0/action/compose");
+      url.searchParams.set("subject", title);
+      url.searchParams.set("startdt", localISO(startMs));
+      url.searchParams.set("enddt", localISO(endMs));
+      if (details) url.searchParams.set("body", details);
+      return url.toString();
+    }
+    return null;
   }
   async function getGoogleBusyPeriods(startISO, endISO) {
     let calIds = ["primary"];
@@ -22856,44 +22855,40 @@ Notes: ${task.notes}` : ""
       const total = totalSessions();
       const isSplit = total > 1;
       const isLast = bookedCount + 1 >= total;
+      const calUrl = buildCalendarCreateUrl(task, slot.startMs, slot.endMs);
       const ok = await showConfirm({
-        title: isSplit ? `Book session ${bookedCount + 1} of ${total}?` : "Book focus block?",
+        title: isSplit ? `Open calendar \u2014 session ${bookedCount + 1} of ${total}` : "Open in calendar",
         lines: [
           `Task: ${task.title}`,
-          `Time: ${dayStr}, ${fmt2(start)} \u2013 ${fmt2(end)}`,
+          `Suggested time: ${dayStr}, ${fmt2(start)} \u2013 ${fmt2(end)}`,
           `Duration: ${fmtMins(currentMins())}`,
-          isSplit && !isLast ? `${total - bookedCount - 1} more session${total - bookedCount - 1 !== 1 ? "s" : ""} to book after this` : ""
+          calUrl ? "Your calendar will open with this event pre-filled \u2014 drag it to fit your day before saving." : "Session will be saved to this task.",
+          isSplit && !isLast ? `${total - bookedCount - 1} more session${total - bookedCount - 1 !== 1 ? "s" : ""} to schedule after this` : ""
         ].filter(Boolean),
-        confirmText: "Book it"
+        confirmText: calUrl ? "Open Calendar \u2192" : "Save session"
       });
       if (!ok) return;
-      slotArea.innerHTML = "";
-      statusEl.textContent = "Booking\u2026";
-      try {
-        await bookFocusBlock(task, slot.startISO, slot.endISO);
-        document.dispatchEvent(new CustomEvent("focusboard:focus-booked"));
-        const sessionData = {
-          day: start.toLocaleDateString("en-GB", { weekday: "short" }),
-          date: slot.startISO.slice(0, 10),
-          start: fmt2(start),
-          end: fmt2(end),
-          startISO: slot.startISO,
-          endISO: slot.endISO
-        };
-        if (task._onBook) task._onBook(sessionData);
-        else addFocusSession(task.id, sessionData);
-        bookedCount++;
-        updateProgress();
-        if (bookedCount >= total) {
-          onClose();
-        } else {
-          statusEl.textContent = "";
-          statusEl.style.color = "#1D9E75";
-          statusEl.textContent = `\u2713 Session ${bookedCount} booked! Now pick a ${fmtMins(currentMins())} slot.`;
-          loadSlots(selectedDate);
-        }
-      } catch (err) {
-        statusEl.textContent = `Booking failed: ${err.message}`;
+      if (calUrl) window.open(calUrl, "_blank", "noopener");
+      const sessionData = {
+        day: start.toLocaleDateString("en-GB", { weekday: "short" }),
+        date: start.toLocaleDateString("en-CA"),
+        // YYYY-MM-DD in local time
+        start: fmt2(start),
+        end: fmt2(end),
+        startISO: slot.startISO,
+        endISO: slot.endISO
+      };
+      if (task._onBook) task._onBook(sessionData);
+      else addFocusSession(task.id, sessionData);
+      bookedCount++;
+      updateProgress();
+      document.dispatchEvent(new CustomEvent("focusboard:focus-booked"));
+      if (bookedCount >= total) {
+        onClose();
+      } else {
+        statusEl.style.color = "#1D9E75";
+        statusEl.textContent = `\u2713 Session ${bookedCount} opened in calendar! Now pick a ${fmtMins(currentMins())} slot.`;
+        loadSlots(selectedDate);
       }
     }
     let splitRow = null;
