@@ -228,7 +228,7 @@ export async function createGoogleEvent(title, body, startISO, endISO) {
   return googleFetch('/calendars/primary/events', {
     method: 'POST',
     body: JSON.stringify({
-      summary:     `🎯 ${title}`,
+      summary:     `[Focus] ${title}`,
       description: body,
       start: { dateTime: startISO, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
       end:   { dateTime: endISO,   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
@@ -303,7 +303,7 @@ export async function createOutlookEvent(title, body, startISO, endISO) {
   return outlookFetch('/me/events', {
     method: 'POST',
     body: JSON.stringify({
-      subject: `🎯 ${title}`,
+      subject: `[Focus] ${title}`,
       body:    { contentType: 'text', content: body },
       start:   { dateTime: startISO.replace('Z', ''), timeZone: tz },
       end:     { dateTime: endISO.replace('Z', ''),   timeZone: tz },
@@ -336,8 +336,20 @@ export async function getEvents(dateStr) {
   return [];
 }
 
+/** Creates a focus-block event in the connected calendar via the API. */
+export async function bookFocusBlock(task, startISO, endISO) {
+  const notes = [
+    task.dueDate  ? `Due: ${task.dueDate}` : '',
+    task.timeNeeded ? `Duration: ${Math.round(task.timeNeeded)} min` : '',
+    task.notes    ? task.notes            : '',
+  ].filter(Boolean).join('\n');
+  if (isGoogleConnected())  return createGoogleEvent(task.title, notes, startISO, endISO);
+  if (isOutlookConnected()) return createOutlookEvent(task.title, notes, startISO, endISO);
+  throw new Error('No calendar connected');
+}
+
 /**
- * Fetches all 🎯 focus-block events from the connected calendar (yesterday → +60 days)
+ * Fetches all [Focus] focus-block events from the connected calendar (yesterday → +60 days)
  * and matches them against stored focus sessions on each task.
  *
  * Returns a map: taskId → array of per-session status objects:
@@ -354,7 +366,7 @@ export async function syncFocusSessions(tasks) {
   const p       = n => String(n).padStart(2, '0');
   const dateFmt = d => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 
-  // Fetch all 🎯 events across every calendar the user can read
+  // Fetch all [Focus] events across every calendar the user can read
   let calIds = ['primary'];
   try {
     const cl = await googleFetch('/users/me/calendarList?minAccessRole=freeBusyReader');
@@ -362,7 +374,7 @@ export async function syncFocusSessions(tasks) {
   } catch { /* fallback to primary */ }
 
   const qs = new URLSearchParams({
-    q: '🎯',
+    q: '[Focus]',
     timeMin:       `${dateFmt(yesterday)}T00:00:00`,
     timeMax:       `${dateFmt(inSixty)}T23:59:59`,
     singleEvents:  'true',
@@ -386,7 +398,7 @@ export async function syncFocusSessions(tasks) {
       : (task.focusBlock ? [task.focusBlock] : []);
     if (!sessions.length) continue;
 
-    const expectedTitle = `🎯 ${task.title}`;
+    const expectedTitle = `[Focus] ${task.title}`;
     const taskEvents    = calEvents.filter(e => e.summary === expectedTitle);
 
     syncMap[task.id] = sessions.map(session => {
@@ -430,47 +442,29 @@ export async function syncFocusSessions(tasks) {
  * Epoch ms values are formatted as LOCAL time so the calendar shows
  * the correct time without UTC conversion artefacts.
  */
-export function buildCalendarCreateUrl(task, startMs, endMs) {
-  const title   = `🎯 ${task.title}`;
-  const durMins = Math.round((endMs - startMs) / 60_000);
-  const details = [
-    `Duration: ${durMins} min`,
-    task.dueDate ? `Due: ${task.dueDate}` : '',
-    task.notes   ? task.notes            : '',
-  ].filter(Boolean).join('\n');
-
-  // Format epoch as local YYYYMMDDTHHMMSS (no Z = local time in Google)
-  const localCompact = ms => {
-    const d = new Date(ms);
-    const p = n => String(n).padStart(2, '0');
-    return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}00`;
-  };
-  // Format epoch as local ISO without Z (for Outlook)
-  const localISO = ms => {
-    const d = new Date(ms);
-    const p = n => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00`;
-  };
+export function buildCalendarOpenUrl(startMs) {
+  // Open the calendar in day view for the selected date so the user can
+  // see their full schedule and click to place the event (tetris-style).
+  // Google: /calendar/r/day/YYYY/M/D  (month has no leading zero)
+  // Outlook: /calendar/0/view/day/YYYY-MM-DD
+  const d = new Date(startMs);
+  const y = d.getFullYear();
+  const m = d.getMonth() + 1;      // no leading zero for Google
+  const dd = d.getDate();
+  const p  = n => String(n).padStart(2, '0');
 
   if (isGoogleConnected()) {
-    const url = new URL('https://calendar.google.com/calendar/render');
-    url.searchParams.set('action',  'TEMPLATE');
-    url.searchParams.set('text',    title);
-    url.searchParams.set('dates',   `${localCompact(startMs)}/${localCompact(endMs)}`);
-    if (details) url.searchParams.set('details', details);
-    return url.toString();
+    return `https://calendar.google.com/calendar/r/day/${y}/${m}/${dd}`;
   }
-
   if (isOutlookConnected()) {
-    const url = new URL('https://outlook.live.com/calendar/0/action/compose');
-    url.searchParams.set('subject',  title);
-    url.searchParams.set('startdt',  localISO(startMs));
-    url.searchParams.set('enddt',    localISO(endMs));
-    if (details) url.searchParams.set('body', details);
-    return url.toString();
+    return `https://outlook.live.com/calendar/0/view/day/${y}-${p(m)}-${p(dd)}`;
   }
-
   return null;
+}
+
+/** The event title to copy to clipboard so the user can paste it when clicking a slot. */
+export function getFocusEventTitle(task) {
+  return task.title;   // plain title — no prefix needed since user pastes it themselves
 }
 
 // ── Busy period fetchers (all calendars) ─────────────────────────────────────

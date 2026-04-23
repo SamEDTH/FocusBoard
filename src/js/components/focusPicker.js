@@ -1,5 +1,5 @@
 import { h } from '../dom.js';
-import { getFreeSlots, buildCalendarCreateUrl, isAnyConnected } from '../services/calendar.js';
+import { getFreeSlots, getEvents, bookFocusBlock, buildCalendarOpenUrl, isAnyConnected } from '../services/calendar.js';
 import { addFocusSession, S } from '../store.js';
 import { showConfirm } from './confirm.js';
 
@@ -10,7 +10,6 @@ function nextDates(n) {
   for (let i = 0; i < n; i++) {
     const d = new Date();
     d.setDate(d.getDate() + i);
-    // Use local date (not UTC) so dates don't shift for non-UTC timezones
     const yyyy = d.getFullYear();
     const mm   = String(d.getMonth() + 1).padStart(2, '0');
     const dd   = String(d.getDate()).padStart(2, '0');
@@ -41,32 +40,22 @@ function fmt(d) {
   return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
-/**
- * Build split options where each session is either:
- *  - The full duration (no split)
- *  - 1-hour blocks + the leftover minutes
- * e.g. 105 mins → [60, 45]; 150 mins → [60, 60, 30]; 120 mins → [60, 60]
- */
+// ── Split options ─────────────────────────────────────────────────────────────
+
 function getSplitOptions(totalMins) {
   const opts = [{
     label:            `Full session (${fmtMins(totalMins)})`,
     sessionDurations: [totalMins],
   }];
-
   if (totalMins > 60) {
     const hours     = Math.floor(totalMins / 60);
     const remainder = totalMins % 60;
     const durations = [...Array(hours).fill(60), ...(remainder > 0 ? [remainder] : [])];
-
-    if (durations.length > 1) {
-      opts.push({ label: buildSplitLabel(durations), sessionDurations: durations });
-    }
+    if (durations.length > 1) opts.push({ label: buildSplitLabel(durations), sessionDurations: durations });
   }
-
   return opts;
 }
 
-/** Turn [60, 60, 45] into "2 × 1h + 45m" */
 function buildSplitLabel(durations) {
   const parts = [];
   let i = 0;
@@ -80,6 +69,70 @@ function buildSplitLabel(durations) {
   return parts.join(' + ');
 }
 
+// ── Mini day timeline ─────────────────────────────────────────────────────────
+
+const TRACK_H = 300; // px
+
+function buildDayView(calEvents, wsMs, weMs, dateStr) {
+  const totalMs = weMs - wsMs;
+  const toY = ms => Math.max(0, Math.min(TRACK_H, ((ms - wsMs) / totalMs) * TRACK_H));
+  const toH = ms => Math.max(3, (ms / totalMs) * TRACK_H);
+
+  const track = h('div', { class: 'fp-day-track' });
+
+  // Hour gridlines + labels
+  const startHour = new Date(wsMs).getHours();
+  const endHour   = new Date(weMs).getHours() + 1;
+  for (let hr = startHour; hr <= endHour; hr++) {
+    const d = new Date(wsMs); d.setHours(hr, 0, 0, 0);
+    const y = toY(d.getTime());
+    if (y > TRACK_H) break;
+    track.appendChild(h('div', { class: 'fp-day-hr', style: { top: `${y}px` } },
+      h('span', { class: 'fp-day-hr-lbl' }, `${String(hr).padStart(2, '0')}:00`),
+      h('div',  { class: 'fp-day-hr-line' }),
+    ));
+  }
+
+  // Current time marker (today only)
+  const todayStr = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
+  if (dateStr === todayStr) {
+    const nowMs = Date.now();
+    if (nowMs >= wsMs && nowMs <= weMs) {
+      track.appendChild(h('div', { class: 'fp-day-now', style: { top: `${toY(nowMs)}px` } }));
+    }
+  }
+
+  // Existing calendar events
+  calEvents.forEach(ev => {
+    const top = toY(ev.start);
+    const hgt = toH(ev.end - ev.start);
+    if (top >= TRACK_H) return;
+    const el = h('div', { class: 'fp-day-event', style: { top: `${top}px`, height: `${Math.min(hgt, TRACK_H - top)}px` } });
+    el.title = ev.title || '';
+    el.textContent = ev.title || '';
+    track.appendChild(el);
+  });
+
+  // Ghost block — shown on slot hover
+  const ghost = h('div', { class: 'fp-day-ghost' });
+  ghost.style.display = 'none';
+  track.appendChild(ghost);
+
+  const el = h('div', { class: 'fp-day-view' }, track);
+
+  return {
+    el,
+    setHighlight(slot) {
+      if (!slot) { ghost.style.display = 'none'; return; }
+      const top = toY(slot.startMs);
+      const hgt = toH(slot.endMs - slot.startMs);
+      ghost.style.display = 'block';
+      ghost.style.top     = `${top}px`;
+      ghost.style.height  = `${Math.min(hgt, TRACK_H - top)}px`;
+    },
+  };
+}
+
 // ── Main picker ───────────────────────────────────────────────────────────────
 
 export function buildFocusPicker(task, onClose) {
@@ -87,26 +140,24 @@ export function buildFocusPicker(task, onClose) {
   const splitOpts = totalMins > 60 ? getSplitOptions(totalMins) : null;
   const dates     = nextDates(7);
 
-  let selectedDate      = dates[0];
-  let selectedSplit     = splitOpts ? splitOpts[0] : { label: '', sessionDurations: [totalMins] };
-  let bookedCount       = 0;
+  let selectedDate  = dates[0];
+  let selectedSplit = splitOpts ? splitOpts[0] : { label: '', sessionDurations: [totalMins] };
+  let bookedCount   = 0;
 
-  const currentMins = () => selectedSplit.sessionDurations[Math.min(bookedCount, selectedSplit.sessionDurations.length - 1)];
+  const currentMins   = () => selectedSplit.sessionDurations[Math.min(bookedCount, selectedSplit.sessionDurations.length - 1)];
   const totalSessions = () => selectedSplit.sessionDurations.length;
 
-  // ── Slot area ─────────────────────────────────────────────────────────────
+  // ── Progress bar ──────────────────────────────────────────────────────────
 
-  const slotArea  = h('div', { class: 'fp-slots' });
-  const statusEl  = h('div', { class: 'fp-status' });
   const progressEl = h('div', { class: 'fp-progress' });
+  const statusEl   = h('div', { class: 'fp-status' });
+  const bodyEl     = h('div', { class: 'fp-body' });
 
   function updateProgress() {
     progressEl.innerHTML = '';
     const total = totalSessions();
     if (total <= 1) return;
-
-    const remaining = total - bookedCount;
-    const nextMins  = currentMins();
+    const nextMins = currentMins();
     progressEl.appendChild(
       h('div', { class: 'fp-progress-bar' },
         h('span', { class: 'fp-progress-label' },
@@ -121,9 +172,12 @@ export function buildFocusPicker(task, onClose) {
     );
   }
 
+  // ── Load slots + day view ─────────────────────────────────────────────────
+
   async function loadSlots(dateStr) {
-    slotArea.innerHTML = '';
+    bodyEl.innerHTML = '';
     statusEl.textContent = '';
+    statusEl.style.color = '';
 
     if (!isAnyConnected()) {
       statusEl.textContent = 'Connect a calendar in Settings to see available slots.';
@@ -132,61 +186,86 @@ export function buildFocusPicker(task, onClose) {
 
     statusEl.textContent = 'Checking your calendar…';
     try {
-      const slotMins = Math.max(currentMins(), S.focusMinBlock ?? 30);
-      const slots = await getFreeSlots(dateStr, slotMins, S.workStart, S.workEnd, S.focusBuffer ?? 15);
+      const slotMins  = Math.max(currentMins(), S.focusMinBlock ?? 30);
+      const workStart = S.workStart || '09:30';
+      const workEnd   = S.workEnd   || '17:30';
+      const bufMins   = S.focusBuffer ?? 15;
+      const wsMs = new Date(`${dateStr}T${workStart}:00`).getTime();
+      const weMs = new Date(`${dateStr}T${workEnd}:00`).getTime();
+
+      // Fetch slots and calendar events in parallel
+      const [slots, calEvents] = await Promise.all([
+        getFreeSlots(dateStr, slotMins, workStart, workEnd, bufMins),
+        getEvents(dateStr).catch(() => []),
+      ]);
+
       statusEl.textContent = '';
 
+      // Build mini day timeline
+      const dayView = buildDayView(calEvents, wsMs, weMs, dateStr);
+
+      // Build slot list
+      const slotList = h('div', { class: 'fp-slot-list' });
       if (!slots.length) {
-        statusEl.textContent = `No free ${fmtMins(currentMins())} slots on ${friendlyDate(dateStr)}.`;
-        return;
+        slotList.appendChild(h('div', { class: 'fp-no-slots' }, `No free ${fmtMins(slotMins)} slots`));
+      } else {
+        slots.forEach(slot => {
+          const btn = h('button', { class: 'fp-slot-btn' }, slot.label);
+          btn.addEventListener('mouseenter', () => dayView.setHighlight(slot));
+          btn.addEventListener('mouseleave', () => dayView.setHighlight(null));
+          btn.addEventListener('click', () => { dayView.setHighlight(null); bookSlot(slot); });
+          slotList.appendChild(btn);
+        });
       }
 
-      slots.forEach(slot => {
-        const btn = h('button', { class: 'fp-slot-btn' }, slot.label);
-        btn.addEventListener('click', () => confirmSlot(slot));
-        slotArea.appendChild(btn);
-      });
+      bodyEl.appendChild(slotList);
+      bodyEl.appendChild(dayView.el);
+
     } catch (err) {
       statusEl.textContent = `Error: ${err.message}`;
     }
   }
 
-  // ── Open in calendar & record ─────────────────────────────────────────────
+  // ── Book slot ─────────────────────────────────────────────────────────────
 
-  async function confirmSlot(slot) {
+  async function bookSlot(slot) {
     const start   = new Date(slot.startISO);
     const end     = new Date(slot.endISO);
-    const dayStr  = start.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
     const total   = totalSessions();
-    const isSplit = total > 1;
     const isLast  = bookedCount + 1 >= total;
-
-    const calUrl = buildCalendarCreateUrl(task, slot.startMs, slot.endMs);
+    const isSplit = total > 1;
+    const dayStr  = start.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 
     const ok = await showConfirm({
-      title: isSplit ? `Open calendar — session ${bookedCount + 1} of ${total}` : 'Open in calendar',
-      lines: [
+      title:       isSplit ? `Book session ${bookedCount + 1} of ${total}?` : 'Book focus block?',
+      lines:       [
         `Task: ${task.title}`,
-        `Suggested time: ${dayStr}, ${fmt(start)} – ${fmt(end)}`,
+        `${dayStr}, ${fmt(start)} – ${fmt(end)}`,
         `Duration: ${fmtMins(currentMins())}`,
-        calUrl
-          ? 'Your calendar will open with this event pre-filled — drag it to fit your day before saving.'
-          : 'Session will be saved to this task.',
-        isSplit && !isLast
-          ? `${total - bookedCount - 1} more session${total - bookedCount - 1 !== 1 ? 's' : ''} to schedule after this`
-          : '',
+        isSplit && !isLast ? `${total - bookedCount - 1} more session${total - bookedCount - 1 !== 1 ? 's' : ''} to book` : '',
       ].filter(Boolean),
-      confirmText: calUrl ? 'Open Calendar →' : 'Save session',
+      confirmText: 'Book it',
     });
     if (!ok) return;
 
-    // Open the calendar create URL in a new tab
-    if (calUrl) window.open(calUrl, '_blank', 'noopener');
+    statusEl.textContent = 'Booking…';
+    statusEl.style.color = '';
 
-    // Record the session in Focusboard using the suggested slot time
+    // Try direct API booking; fall back to opening the calendar in a new tab
+    try {
+      await bookFocusBlock(task, slot.startISO, slot.endISO);
+    } catch {
+      const url = buildCalendarOpenUrl(slot.startMs);
+      if (url) {
+        navigator.clipboard.writeText(task.title).catch(() => {});
+        window.open(url, '_blank', 'noopener');
+      }
+    }
+
+    // Record session locally
     const sessionData = {
       day:      start.toLocaleDateString('en-GB', { weekday: 'short' }),
-      date:     start.toLocaleDateString('en-CA'),   // YYYY-MM-DD in local time
+      date:     start.toLocaleDateString('en-CA'),
       start:    fmt(start),
       end:      fmt(end),
       startISO: slot.startISO,
@@ -197,12 +276,13 @@ export function buildFocusPicker(task, onClose) {
     bookedCount++;
     updateProgress();
     document.dispatchEvent(new CustomEvent('focusboard:focus-booked'));
+    statusEl.textContent = '';
 
     if (bookedCount >= total) {
       onClose();
     } else {
       statusEl.style.color = '#1D9E75';
-      statusEl.textContent = `✓ Session ${bookedCount} opened in calendar! Now pick a ${fmtMins(currentMins())} slot.`;
+      statusEl.textContent = `✓ Session ${bookedCount} booked! Now pick a ${fmtMins(currentMins())} slot.`;
       loadSlots(selectedDate);
     }
   }
@@ -256,7 +336,7 @@ export function buildFocusPicker(task, onClose) {
     progressEl,
     dateTabs,
     statusEl,
-    slotArea,
+    bodyEl,
   );
 }
 
