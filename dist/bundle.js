@@ -20724,6 +20724,69 @@ ${suffix}`;
     if (isOutlookConnected()) return getOutlookEvents(start, end);
     return [];
   }
+  async function syncFocusSessions(tasks) {
+    if (!isGoogleConnected()) return null;
+    const today = /* @__PURE__ */ new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const inSixty = new Date(today);
+    inSixty.setDate(inSixty.getDate() + 60);
+    const p = (n) => String(n).padStart(2, "0");
+    const dateFmt = (d) => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    let calIds = ["primary"];
+    try {
+      const cl = await googleFetch("/users/me/calendarList?minAccessRole=freeBusyReader");
+      if (cl.items?.length) calIds = cl.items.map((c) => c.id);
+    } catch {
+    }
+    const qs = new URLSearchParams({
+      q: "\u{1F3AF}",
+      timeMin: `${dateFmt(yesterday)}T00:00:00`,
+      timeMax: `${dateFmt(inSixty)}T23:59:59`,
+      singleEvents: "true",
+      maxResults: "250",
+      showDeleted: "false"
+    });
+    const fetched = await Promise.all(calIds.map(async (id) => {
+      try {
+        const d = await googleFetch(`/calendars/${encodeURIComponent(id)}/events?${qs}`);
+        return (d.items || []).filter((e) => e.start?.dateTime && e.status !== "cancelled");
+      } catch {
+        return [];
+      }
+    }));
+    const calEvents = fetched.flat();
+    const syncMap = {};
+    for (const task of tasks) {
+      const sessions = task.focusSessions?.length ? task.focusSessions : task.focusBlock ? [task.focusBlock] : [];
+      if (!sessions.length) continue;
+      const expectedTitle = `\u{1F3AF} ${task.title}`;
+      const taskEvents = calEvents.filter((e) => e.summary === expectedTitle);
+      syncMap[task.id] = sessions.map((session) => {
+        if (!session.startISO) return { status: "unknown" };
+        const sessionDate = /* @__PURE__ */ new Date(`${session.date || session.startISO.slice(0, 10)}T00:00:00`);
+        if (sessionDate < yesterday) return { status: "past" };
+        const sessionMs = new Date(session.startISO).getTime();
+        if (taskEvents.some((e) => Math.abs(new Date(e.start.dateTime).getTime() - sessionMs) < 5 * 6e4)) {
+          return { status: "ok" };
+        }
+        const sessionDateStr = session.date || session.startISO.slice(0, 10);
+        const sameDay = taskEvents.find((e) => {
+          const d = new Date(e.start.dateTime);
+          return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` === sessionDateStr;
+        });
+        if (sameDay) {
+          const ns = new Date(sameDay.start.dateTime);
+          const ne = new Date(sameDay.end.dateTime);
+          const fmt4 = (d) => d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+          return { status: "rescheduled", newStart: fmt4(ns), newEnd: fmt4(ne) };
+        }
+        return { status: "cancelled" };
+      });
+    }
+    return syncMap;
+  }
   function buildCalendarCreateUrl(task, startMs, endMs) {
     const title = `\u{1F3AF} ${task.title}`;
     const durMins = Math.round((endMs - startMs) / 6e4);
@@ -20985,6 +21048,8 @@ ${suffix}`;
     // total free working-hour minutes today (null = not loaded / no calendar)
     calError: null,
     // non-null when calendar token refresh failed — prompts reconnect
+    focusSyncMap: {},
+    // taskId → [{ status: 'ok'|'cancelled'|'rescheduled'|'past' }]
     // Supabase auth + sync
     userId: null,
     // logged-in user id; null = not signed in or Supabase not configured
@@ -21016,6 +21081,31 @@ ${suffix}`;
         renderFn();
       }
     }
+  }
+  var _focusSyncTimer = null;
+  function runFocusSync(delayMs = 2e3) {
+    clearTimeout(_focusSyncTimer);
+    _focusSyncTimer = setTimeout(async () => {
+      if (!isAnyConnected()) return;
+      const allTasks = [];
+      for (const panel of ["work", "life"]) {
+        for (const item of S.data[panel]?.items || []) {
+          if (item.focusSessions?.length || item.focusBlock) allTasks.push(item);
+          for (const sub of item.tasks || []) {
+            if (sub.focusSessions?.length || sub.focusBlock) allTasks.push(sub);
+          }
+        }
+      }
+      if (!allTasks.length) return;
+      try {
+        const map = await syncFocusSessions(allTasks);
+        if (map) {
+          S.focusSyncMap = map;
+          renderFn();
+        }
+      } catch {
+      }
+    }, delayMs);
   }
   function set(patch) {
     Object.assign(S, patch);
@@ -23392,11 +23482,25 @@ ${suffix}`;
       if (hasSessions) {
         const pillsWrap = h("div", { class: "focus-sessions" });
         sessions.forEach((s, i) => {
-          pillsWrap.appendChild(h(
-            "div",
-            { class: "focus-pill" },
+          const sync = S.focusSyncMap?.[item.id]?.[i];
+          const status = sync?.status;
+          let pillCls = "focus-pill";
+          let badge = null;
+          let hint = null;
+          if (status === "cancelled") {
+            pillCls += " focus-pill-conflict";
+            badge = h("span", { class: "fp-sync-badge fp-sync-warn", title: "This focus block no longer appears in your calendar \u2014 it may have been overridden" }, "\u26A0");
+            hint = h("span", { class: "fp-sync-hint" }, "Not in calendar");
+          } else if (status === "rescheduled") {
+            pillCls += " focus-pill-rescheduled";
+            badge = h("span", { class: "fp-sync-badge fp-sync-info", title: `Detected at ${sync.newStart} \u2013 ${sync.newEnd} in your calendar` }, "\u{1F504}");
+            hint = h("span", { class: "fp-sync-hint" }, `Now ${sync.newStart} \u2013 ${sync.newEnd}`);
+          }
+          const pillChildren = [
             h("span", { class: "focus-pill-time" }, `${s.start} \u2013 ${s.end}`),
             h("span", { class: "focus-pill-day" }, s.day),
+            badge,
+            hint,
             h("button", {
               class: "focus-pill-remove",
               title: "Remove session",
@@ -23405,7 +23509,10 @@ ${suffix}`;
                 removeFocusSession(item.id, i);
               }
             }, "\xD7")
-          ));
+          ].filter(Boolean);
+          const pill = h("div", { class: pillCls });
+          pillChildren.forEach((c) => pill.appendChild(c));
+          pillsWrap.appendChild(pill);
         });
         container.appendChild(pillsWrap);
         if (remaining > 0) container.appendChild(h("div", { class: "fp-remaining" }, `${formatTime(remaining)} still unscheduled`));
@@ -25739,6 +25846,7 @@ ${suffix}`;
           setGoogleFromSupabase(session.provider_token, expiresAt2);
         }
         loadCalFreeMinutes();
+        runFocusSync();
       } else if (!session?.user && S.userId) {
         S.userId = null;
         S.loading = false;
@@ -25750,5 +25858,10 @@ ${suffix}`;
   } else {
     render();
     loadCalFreeMinutes();
+    runFocusSync();
   }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") runFocusSync(500);
+  });
+  document.addEventListener("focusboard:focus-booked", () => runFocusSync(4e3));
 })();

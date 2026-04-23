@@ -1,6 +1,6 @@
 import { STORAGE_KEY, SETTINGS_KEY, DEFAULT, TODAY } from './constants.js';
 import { uid } from './utils.js';
-import { getTotalFreeMinutes, isAnyConnected } from './services/calendar.js';
+import { getTotalFreeMinutes, isAnyConnected, syncFocusSessions } from './services/calendar.js';
 import { isSupabaseConfigured, loadBoard, saveBoard } from './services/supabase.js';
 
 // ── Persistence ──────────────────────────────────────────────────────────────
@@ -103,6 +103,7 @@ export const S = {
   followUpDays:  savedSettings.followUpDays  ?? 5,
   calFreeMinutes: null, // total free working-hour minutes today (null = not loaded / no calendar)
   calError: null,       // non-null when calendar token refresh failed — prompts reconnect
+  focusSyncMap: {},     // taskId → [{ status: 'ok'|'cancelled'|'rescheduled'|'past' }]
   // Supabase auth + sync
   userId:    null,  // logged-in user id; null = not signed in or Supabase not configured
   loading:   false, // true while fetching board data from Supabase on sign-in
@@ -135,6 +136,34 @@ export async function loadCalFreeMinutes() {
       renderFn();
     }
   }
+}
+
+/**
+ * Sync focus-block sessions against the connected calendar.
+ * Runs silently in the background; updates S.focusSyncMap and re-renders.
+ * Debounced — rapid calls (e.g. tab focus + app load) only fire once.
+ */
+let _focusSyncTimer = null;
+export function runFocusSync(delayMs = 2000) {
+  clearTimeout(_focusSyncTimer);
+  _focusSyncTimer = setTimeout(async () => {
+    if (!isAnyConnected()) return;
+    // Collect all top-level tasks and workflow sub-tasks across both panels
+    const allTasks = [];
+    for (const panel of ['work', 'life']) {
+      for (const item of (S.data[panel]?.items || [])) {
+        if (item.focusSessions?.length || item.focusBlock) allTasks.push(item);
+        for (const sub of (item.tasks || [])) {
+          if (sub.focusSessions?.length || sub.focusBlock) allTasks.push(sub);
+        }
+      }
+    }
+    if (!allTasks.length) return;
+    try {
+      const map = await syncFocusSessions(allTasks);
+      if (map) { S.focusSyncMap = map; renderFn(); }
+    } catch { /* sync errors are non-critical */ }
+  }, delayMs);
 }
 
 // ── Core state updaters ───────────────────────────────────────────────────────

@@ -210,15 +210,37 @@ export function buildTaskBody(item, overdue) {
     if (hasSessions) {
       const pillsWrap = h('div', { class: 'focus-sessions' });
       sessions.forEach((s, i) => {
-        pillsWrap.appendChild(h('div', { class: 'focus-pill' },
+        const sync   = S.focusSyncMap?.[item.id]?.[i];
+        const status = sync?.status;   // 'ok' | 'cancelled' | 'rescheduled' | 'past' | undefined
+
+        let pillCls = 'focus-pill';
+        let badge   = null;
+        let hint    = null;
+
+        if (status === 'cancelled') {
+          pillCls += ' focus-pill-conflict';
+          badge    = h('span', { class: 'fp-sync-badge fp-sync-warn', title: 'This focus block no longer appears in your calendar — it may have been overridden' }, '⚠');
+          hint     = h('span', { class: 'fp-sync-hint' }, 'Not in calendar');
+        } else if (status === 'rescheduled') {
+          pillCls += ' focus-pill-rescheduled';
+          badge    = h('span', { class: 'fp-sync-badge fp-sync-info', title: `Detected at ${sync.newStart} – ${sync.newEnd} in your calendar` }, '🔄');
+          hint     = h('span', { class: 'fp-sync-hint' }, `Now ${sync.newStart} – ${sync.newEnd}`);
+        }
+
+        const pillChildren = [
           h('span', { class: 'focus-pill-time' }, `${s.start} – ${s.end}`),
           h('span', { class: 'focus-pill-day' }, s.day),
+          badge,
+          hint,
           h('button', {
             class: 'focus-pill-remove',
             title: 'Remove session',
             onClick: e => { e.stopPropagation(); removeFocusSession(item.id, i); },
           }, '×'),
-        ));
+        ].filter(Boolean);
+        const pill = h('div', { class: pillCls });
+        pillChildren.forEach(c => pill.appendChild(c));
+        pillsWrap.appendChild(pill);
       });
       container.appendChild(pillsWrap);
       if (remaining > 0) container.appendChild(h('div', { class: 'fp-remaining' }, `${formatTime(remaining)} still unscheduled`));

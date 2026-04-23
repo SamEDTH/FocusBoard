@@ -337,6 +337,94 @@ export async function getEvents(dateStr) {
 }
 
 /**
+ * Fetches all 🎯 focus-block events from the connected calendar (yesterday → +60 days)
+ * and matches them against stored focus sessions on each task.
+ *
+ * Returns a map: taskId → array of per-session status objects:
+ *   { status: 'ok' | 'cancelled' | 'rescheduled' | 'past' | 'unknown',
+ *     newStart?: string, newEnd?: string }   // only when rescheduled
+ */
+export async function syncFocusSessions(tasks) {
+  if (!isGoogleConnected()) return null;
+
+  const today     = new Date(); today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+  const inSixty   = new Date(today); inSixty.setDate(inSixty.getDate() + 60);
+
+  const p       = n => String(n).padStart(2, '0');
+  const dateFmt = d => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+
+  // Fetch all 🎯 events across every calendar the user can read
+  let calIds = ['primary'];
+  try {
+    const cl = await googleFetch('/users/me/calendarList?minAccessRole=freeBusyReader');
+    if (cl.items?.length) calIds = cl.items.map(c => c.id);
+  } catch { /* fallback to primary */ }
+
+  const qs = new URLSearchParams({
+    q: '🎯',
+    timeMin:       `${dateFmt(yesterday)}T00:00:00`,
+    timeMax:       `${dateFmt(inSixty)}T23:59:59`,
+    singleEvents:  'true',
+    maxResults:    '250',
+    showDeleted:   'false',
+  });
+
+  const fetched = await Promise.all(calIds.map(async id => {
+    try {
+      const d = await googleFetch(`/calendars/${encodeURIComponent(id)}/events?${qs}`);
+      return (d.items || []).filter(e => e.start?.dateTime && e.status !== 'cancelled');
+    } catch { return []; }
+  }));
+  const calEvents = fetched.flat();
+
+  // Build sync map
+  const syncMap = {};
+  for (const task of tasks) {
+    const sessions = task.focusSessions?.length
+      ? task.focusSessions
+      : (task.focusBlock ? [task.focusBlock] : []);
+    if (!sessions.length) continue;
+
+    const expectedTitle = `🎯 ${task.title}`;
+    const taskEvents    = calEvents.filter(e => e.summary === expectedTitle);
+
+    syncMap[task.id] = sessions.map(session => {
+      if (!session.startISO) return { status: 'unknown' };
+
+      // Sessions >1 day in the past — don't bother checking
+      const sessionDate = new Date(`${session.date || session.startISO.slice(0, 10)}T00:00:00`);
+      if (sessionDate < yesterday) return { status: 'past' };
+
+      const sessionMs = new Date(session.startISO).getTime();
+
+      // Exact match: event starts within 5 minutes of stored time
+      if (taskEvents.some(e => Math.abs(new Date(e.start.dateTime).getTime() - sessionMs) < 5 * 60_000)) {
+        return { status: 'ok' };
+      }
+
+      // Same-day match: event exists but at a different time (rescheduled)
+      const sessionDateStr = session.date || session.startISO.slice(0, 10);
+      const sameDay = taskEvents.find(e => {
+        const d = new Date(e.start.dateTime);
+        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` === sessionDateStr;
+      });
+      if (sameDay) {
+        const ns = new Date(sameDay.start.dateTime);
+        const ne = new Date(sameDay.end.dateTime);
+        const fmt = d => d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+        return { status: 'rescheduled', newStart: fmt(ns), newEnd: fmt(ne) };
+      }
+
+      // Not found in calendar → overridden / cancelled
+      return { status: 'cancelled' };
+    });
+  }
+
+  return syncMap;
+}
+
+/**
  * Returns a "create event" URL for Google Calendar or Outlook.
  * The event is pre-filled with the task title, duration, and notes.
  * Epoch ms values are formatted as LOCAL time so the calendar shows

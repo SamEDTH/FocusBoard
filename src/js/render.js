@@ -1,4 +1,4 @@
-import { S, setRenderFn, getPanelData, getFilteredItems, getActiveCatName, set, toggleSidebar, gotoDashboard, loadCalFreeMinutes, initFromSupabase, enableCategoryFeature } from './store.js';
+import { S, setRenderFn, getPanelData, getFilteredItems, getActiveCatName, set, toggleSidebar, gotoDashboard, loadCalFreeMinutes, runFocusSync, initFromSupabase, enableCategoryFeature } from './store.js';
 import { isSupabaseConfigured, onAuthStateChange } from './services/supabase.js';
 import { setGoogleFromSupabase } from './services/calendar.js';
 import { buildAuthGate } from './components/authGate.js';
@@ -737,6 +737,7 @@ if (isSupabaseConfigured()) {
         setGoogleFromSupabase(session.provider_token, expiresAt);
       }
       loadCalFreeMinutes();
+      runFocusSync();
     } else if (!session?.user && S.userId) {
       // Signed out
       S.userId  = null;
@@ -751,4 +752,13 @@ if (isSupabaseConfigured()) {
   // No Supabase — render immediately (password gate or open access)
   render();
   loadCalFreeMinutes();
+  runFocusSync();
 }
+
+// Re-sync when user returns to the tab (calendar may have changed while away)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') runFocusSync(500);
+});
+
+// Re-sync after a focus block is opened in the calendar
+document.addEventListener('focusboard:focus-booked', () => runFocusSync(4000));
