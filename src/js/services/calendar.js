@@ -358,17 +358,11 @@ export async function bookFocusBlock(task, startISO, endISO) {
  * otherwise block the entire day.
  */
 async function getGoogleBusyPeriods(startISO, endISO) {
-  // Get all calendar IDs, fall back to primary
+  // Get all calendar IDs (all calendars — reader and above — affect availability)
   let calIds = ['primary'];
   try {
-    const calList = await googleFetch('/users/me/calendarList?minAccessRole=reader');
-    if (calList.items?.length) {
-      // Only include calendars that are selected (visible) and not read-only subscription calendars
-      calIds = calList.items
-        .filter(c => c.accessRole === 'owner' || c.accessRole === 'writer')
-        .map(c => c.id);
-      if (!calIds.length) calIds = ['primary'];
-    }
+    const calList = await googleFetch('/users/me/calendarList?minAccessRole=freeBusyReader');
+    if (calList.items?.length) calIds = calList.items.map(c => c.id);
   } catch { /* use primary only */ }
 
   // Fetch timed events from every calendar in parallel
@@ -380,21 +374,27 @@ async function getGoogleBusyPeriods(startISO, endISO) {
         showDeleted: 'false',
       });
       const data = await googleFetch(`/calendars/${encodeURIComponent(calId)}/events?${params}`);
-      return (data.items || [])
-        .filter(e => {
-          if (!e.start?.dateTime) return false;           // exclude all-day events
-          if (e.status === 'cancelled') return false;     // exclude cancelled events
-          if (e.transparency === 'transparent') return false; // exclude "free" events
-          // Exclude events the user has declined
-          const selfAttendee = e.attendees?.find(a => a.self);
-          if (selfAttendee?.responseStatus === 'declined') return false;
-          return true;
-        })
-        .map(e => ({
-          start: new Date(e.start.dateTime).getTime(),
-          end:   new Date(e.end.dateTime).getTime(),
-        }));
-    } catch { return []; }
+      const events = (data.items || []).filter(e => {
+        if (!e.start?.dateTime) return false;            // exclude all-day events
+        if (e.status === 'cancelled') return false;      // exclude cancelled events
+        if (e.transparency === 'transparent') return false; // exclude "show as free" events
+        // Exclude events the user has explicitly declined
+        const selfAttendee = e.attendees?.find(a => a.self);
+        if (selfAttendee?.responseStatus === 'declined') return false;
+        return true;
+      });
+      console.log(`[FocusBoard] Calendar "${calId}": ${events.length} busy event(s)`, events.map(e => ({
+        title: e.summary, start: e.start.dateTime, end: e.end.dateTime,
+        status: e.status, transparency: e.transparency,
+      })));
+      return events.map(e => ({
+        start: new Date(e.start.dateTime).getTime(),
+        end:   new Date(e.end.dateTime).getTime(),
+      }));
+    } catch (err) {
+      console.warn(`[FocusBoard] Failed to fetch calendar "${calId}":`, err.message);
+      return [];
+    }
   }));
 
   return results.flat();
@@ -466,6 +466,9 @@ export async function getFreeSlots(dateStr, durationMins, workStart = '09:30', w
   const durMs = durationMins * 60_000;
   const bufMs = bufferMins   * 60_000;
 
+  const toLocal = ms => new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  console.log(`[FocusBoard] getFreeSlots ${dateStr}: workStart=${workStart}(${toLocal(wsMs)}) workEnd=${workEnd}(${toLocal(weMs)}) dur=${durationMins}m buf=${bufferMins}m rawBusy=${rawBusy.length}`);
+
   // Add buffer around each busy block then sort
   const busy = rawBusy
     .map(b => ({ start: b.start - bufMs, end: b.end + bufMs }))
@@ -480,6 +483,7 @@ export async function getFreeSlots(dateStr, durationMins, workStart = '09:30', w
       merged.push({ ...b });
     }
   }
+  console.log(`[FocusBoard] Merged busy blocks:`, merged.map(b => `${toLocal(b.start)}–${toLocal(b.end)}`));
 
   // Find gaps within working hours
   const slots = [];
@@ -492,6 +496,7 @@ export async function getFreeSlots(dateStr, durationMins, workStart = '09:30', w
   }
   if (weMs - cursor >= durMs) collectSlots(slots, cursor, weMs, durMs);
 
+  console.log(`[FocusBoard] Found ${slots.length} free slot(s). cursor after blocks=${toLocal(cursor)}, weMs=${toLocal(weMs)}, remaining=${Math.round((weMs-cursor)/60000)}m`);
   return slots;
 }
 

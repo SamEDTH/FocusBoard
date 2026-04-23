@@ -20764,11 +20764,8 @@ Notes: ${task.notes}` : ""
   async function getGoogleBusyPeriods(startISO, endISO) {
     let calIds = ["primary"];
     try {
-      const calList = await googleFetch("/users/me/calendarList?minAccessRole=reader");
-      if (calList.items?.length) {
-        calIds = calList.items.filter((c) => c.accessRole === "owner" || c.accessRole === "writer").map((c) => c.id);
-        if (!calIds.length) calIds = ["primary"];
-      }
+      const calList = await googleFetch("/users/me/calendarList?minAccessRole=freeBusyReader");
+      if (calList.items?.length) calIds = calList.items.map((c) => c.id);
     } catch {
     }
     const results = await Promise.all(calIds.map(async (calId) => {
@@ -20781,18 +20778,27 @@ Notes: ${task.notes}` : ""
           showDeleted: "false"
         });
         const data = await googleFetch(`/calendars/${encodeURIComponent(calId)}/events?${params}`);
-        return (data.items || []).filter((e) => {
+        const events = (data.items || []).filter((e) => {
           if (!e.start?.dateTime) return false;
           if (e.status === "cancelled") return false;
           if (e.transparency === "transparent") return false;
           const selfAttendee = e.attendees?.find((a) => a.self);
           if (selfAttendee?.responseStatus === "declined") return false;
           return true;
-        }).map((e) => ({
+        });
+        console.log(`[FocusBoard] Calendar "${calId}": ${events.length} busy event(s)`, events.map((e) => ({
+          title: e.summary,
+          start: e.start.dateTime,
+          end: e.end.dateTime,
+          status: e.status,
+          transparency: e.transparency
+        })));
+        return events.map((e) => ({
           start: new Date(e.start.dateTime).getTime(),
           end: new Date(e.end.dateTime).getTime()
         }));
-      } catch {
+      } catch (err) {
+        console.warn(`[FocusBoard] Failed to fetch calendar "${calId}":`, err.message);
         return [];
       }
     }));
@@ -20841,6 +20847,8 @@ Notes: ${task.notes}` : ""
     const weMs = parseLocalTime(dateStr, workEnd);
     const durMs = durationMins * 6e4;
     const bufMs = bufferMins * 6e4;
+    const toLocal = (ms) => new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    console.log(`[FocusBoard] getFreeSlots ${dateStr}: workStart=${workStart}(${toLocal(wsMs)}) workEnd=${workEnd}(${toLocal(weMs)}) dur=${durationMins}m buf=${bufferMins}m rawBusy=${rawBusy.length}`);
     const busy = rawBusy.map((b) => ({ start: b.start - bufMs, end: b.end + bufMs })).sort((a, b) => a.start - b.start);
     const merged = [];
     for (const b of busy) {
@@ -20850,6 +20858,7 @@ Notes: ${task.notes}` : ""
         merged.push({ ...b });
       }
     }
+    console.log(`[FocusBoard] Merged busy blocks:`, merged.map((b) => `${toLocal(b.start)}\u2013${toLocal(b.end)}`));
     const slots = [];
     let cursor = wsMs;
     for (const block of merged) {
@@ -20859,6 +20868,7 @@ Notes: ${task.notes}` : ""
       cursor = Math.max(cursor, block.end);
     }
     if (weMs - cursor >= durMs) collectSlots(slots, cursor, weMs, durMs);
+    console.log(`[FocusBoard] Found ${slots.length} free slot(s). cursor after blocks=${toLocal(cursor)}, weMs=${toLocal(weMs)}, remaining=${Math.round((weMs - cursor) / 6e4)}m`);
     return slots;
   }
   function parseLocalTime(dateStr, hhmm2) {
