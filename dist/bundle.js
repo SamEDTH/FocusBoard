@@ -25470,9 +25470,9 @@ ${err.message}`);
   function getConsultantTotals(consultantId, invoices) {
     const linked = invoices.filter((i) => i.consultantId === consultantId);
     return {
-      invoiced: linked.reduce((s, i) => s + num(i.net) + num(i.vat), 0),
-      paid: linked.filter((i) => i.status === "Paid").reduce((s, i) => s + num(i.net) + num(i.vat), 0),
-      accounts: linked.filter((i) => ["Pending", "Approved", "Paid"].includes(i.status)).reduce((s, i) => s + num(i.net) + num(i.vat), 0)
+      invoiced: linked.reduce((s, i) => s + num(i.net), 0),
+      paid: linked.filter((i) => i.status === "Paid").reduce((s, i) => s + num(i.net), 0),
+      accounts: linked.filter((i) => ["Pending", "Approved", "Paid"].includes(i.status)).reduce((s, i) => s + num(i.net), 0)
     };
   }
   function buildPivot(consultants, invoices) {
