@@ -627,7 +627,13 @@ export async function getFreeSlots(dateStr, durationMins, workStart = '09:30', w
   if (weMs - cursor >= durMs) collectSlots(slots, cursor, weMs, durMs);
 
   console.log(`[FocusBoard] Found ${slots.length} free slot(s). cursor after blocks=${toLocal(cursor)}, weMs=${toLocal(weMs)}, remaining=${Math.round((weMs-cursor)/60000)}m`);
-  return slots;
+
+  // Clip merged busy blocks to working hours for diagnostic display
+  const mergedBusy = merged
+    .map(b => ({ start: Math.max(b.start, wsMs), end: Math.min(b.end, weMs) }))
+    .filter(b => b.start < b.end);
+
+  return { slots, mergedBusy };
 }
 
 function parseLocalTime(dateStr, hhmm) {

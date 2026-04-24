@@ -194,7 +194,7 @@ export function buildFocusPicker(task, onClose) {
       const weMs = new Date(`${dateStr}T${workEnd}:00`).getTime();
 
       // Fetch slots and calendar events in parallel
-      const [slots, calEvents] = await Promise.all([
+      const [{ slots, mergedBusy }, calEvents] = await Promise.all([
         getFreeSlots(dateStr, slotMins, workStart, workEnd, bufMins),
         getEvents(dateStr).catch(() => []),
       ]);
@@ -208,6 +208,11 @@ export function buildFocusPicker(task, onClose) {
       const slotList = h('div', { class: 'fp-slot-list' });
       if (!slots.length) {
         slotList.appendChild(h('div', { class: 'fp-no-slots' }, `No free ${fmtMins(slotMins)} slots`));
+        if (mergedBusy.length) {
+          const fmtMs = ms => new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+          const busyStr = mergedBusy.map(b => `${fmtMs(b.start)}–${fmtMs(b.end)}`).join('  ·  ');
+          slotList.appendChild(h('div', { class: 'fp-busy-hint' }, `Blocked: ${busyStr}`));
+        }
       } else {
         slots.forEach(slot => {
           const btn = h('button', { class: 'fp-slot-btn' }, slot.label);

@@ -5770,7 +5770,7 @@ ${cause.stack}`;
     * }
     * ```
     */
-    rpc(fn, args = {}, { head: head2 = false, get: get2 = false, count } = {}) {
+    rpc(fn, args = {}, { head: head2 = false, get: get3 = false, count } = {}) {
       var _this$fetch;
       let method;
       const url = new URL(`${this.url}/rpc/${fn}`);
@@ -5780,7 +5780,7 @@ ${cause.stack}`;
       if (_hasObjectArg) {
         method = "POST";
         body = args;
-      } else if (head2 || get2) {
+      } else if (head2 || get3) {
         method = head2 ? "HEAD" : "GET";
         Object.entries(args).filter(([_, value]) => value !== void 0).map(([name, value]) => [name, Array.isArray(value) ? `{${value.join(",")}}` : `${value}`]).forEach(([name, value]) => {
           url.searchParams.append(name, value);
@@ -20951,7 +20951,8 @@ ${suffix}`;
     }
     if (weMs - cursor >= durMs) collectSlots(slots, cursor, weMs, durMs);
     console.log(`[FocusBoard] Found ${slots.length} free slot(s). cursor after blocks=${toLocal(cursor)}, weMs=${toLocal(weMs)}, remaining=${Math.round((weMs - cursor) / 6e4)}m`);
-    return slots;
+    const mergedBusy = merged.map((b) => ({ start: Math.max(b.start, wsMs), end: Math.min(b.end, weMs) })).filter((b) => b.start < b.end);
+    return { slots, mergedBusy };
   }
   function parseLocalTime(dateStr, hhmm2) {
     return (/* @__PURE__ */ new Date(`${dateStr}T${hhmm2}:00`)).getTime();
@@ -23004,7 +23005,7 @@ ${suffix}`;
         const bufMins = S.focusBuffer ?? 15;
         const wsMs = (/* @__PURE__ */ new Date(`${dateStr}T${workStart}:00`)).getTime();
         const weMs = (/* @__PURE__ */ new Date(`${dateStr}T${workEnd}:00`)).getTime();
-        const [slots, calEvents] = await Promise.all([
+        const [{ slots, mergedBusy }, calEvents] = await Promise.all([
           getFreeSlots(dateStr, slotMins, workStart, workEnd, bufMins),
           getEvents(dateStr).catch(() => [])
         ]);
@@ -23013,6 +23014,11 @@ ${suffix}`;
         const slotList = h("div", { class: "fp-slot-list" });
         if (!slots.length) {
           slotList.appendChild(h("div", { class: "fp-no-slots" }, `No free ${fmtMins(slotMins)} slots`));
+          if (mergedBusy.length) {
+            const fmtMs = (ms) => new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+            const busyStr = mergedBusy.map((b) => `${fmtMs(b.start)}\u2013${fmtMs(b.end)}`).join("  \xB7  ");
+            slotList.appendChild(h("div", { class: "fp-busy-hint" }, `Blocked: ${busyStr}`));
+          }
         } else {
           slots.forEach((slot) => {
             const btn = h("button", { class: "fp-slot-btn" }, slot.label);
@@ -24848,7 +24854,11 @@ ${suffix}`;
   function inp(val, placeholder, onChange, type = "text") {
     const el = h("input", { class: "bgt-inp", value: val ?? "", placeholder, type });
     el.addEventListener("change", (e) => onChange(e.target.value));
-    if (type === "number") el.style.textAlign = "right";
+    if (type === "number") {
+      el.style.textAlign = "right";
+      el.type = "text";
+      el.inputMode = "decimal";
+    }
     return el;
   }
   function selStr(val, options, onChange) {
@@ -24873,6 +24883,476 @@ ${suffix}`;
   function delBtn(onClick) {
     const btn = h("button", { class: "bgt-del", title: "Remove", tabindex: "-1" }, "\xD7");
     btn.addEventListener("click", onClick);
+    return btn;
+  }
+  function parseCSV(text) {
+    const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter((l) => l.trim());
+    if (!lines.length) return { headers: [], rows: [] };
+    const parseRow = (line) => {
+      const fields = [];
+      let cur = "", inQ = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+          if (inQ && line[i + 1] === '"') {
+            cur += '"';
+            i++;
+          } else inQ = !inQ;
+        } else if (ch === "," && !inQ) {
+          fields.push(cur.trim());
+          cur = "";
+        } else {
+          cur += ch;
+        }
+      }
+      fields.push(cur.trim());
+      return fields;
+    };
+    const rawHeaders = parseRow(lines[0]);
+    const headers = rawHeaders.map((h2) => h2.toLowerCase().replace(/[£%]+/g, "").trim());
+    const rows = lines.slice(1).map((l) => parseRow(l)).filter((vals) => vals.some((v) => v.trim())).map((vals) => {
+      const obj = {};
+      headers.forEach((h2, i) => {
+        obj[h2] = vals[i] ?? "";
+      });
+      return obj;
+    });
+    return { headers: rawHeaders, rows };
+  }
+  function get2(row, ...candidates) {
+    for (const c of candidates) {
+      const k = Object.keys(row).find((k2) => k2 === c || k2.includes(c));
+      if (k !== void 0 && row[k] !== void 0) return row[k];
+    }
+    return "";
+  }
+  function showImportPreview({ title, filename, csvHeaders, rows, columns, onConfirm }) {
+    const overlay = h("div", { class: "imp-overlay" });
+    const close = () => overlay.remove();
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) close();
+    });
+    const hdr = h(
+      "div",
+      { class: "imp-hdr" },
+      h(
+        "div",
+        { class: "imp-hdr-left" },
+        h("div", { class: "imp-title" }, title),
+        h("div", { class: "imp-filename" }, filename)
+      ),
+      h("button", { class: "imp-x", onClick: close }, "\xD7")
+    );
+    const mappedKeys = new Set(columns.map((c) => c.key));
+    const mappingEl = h("div", { class: "imp-mapping" });
+    const mappingNote = h("div", { class: "imp-mapping-label" }, "Column mapping:");
+    mappingEl.appendChild(mappingNote);
+    const chips = h("div", { class: "imp-chips" });
+    const firstRow = rows[0] || {};
+    columns.forEach((col) => {
+      const hasData = rows.some((r) => r[col.key] && String(r[col.key]).trim());
+      const chip = h(
+        "span",
+        { class: `imp-chip${hasData ? " imp-chip-ok" : " imp-chip-miss"}` },
+        `${col.label} ${hasData ? "\u2713" : "\u2014"}`
+      );
+      chips.appendChild(chip);
+    });
+    mappingEl.appendChild(chips);
+    const sheetNote = h(
+      "div",
+      { class: "imp-sheet-note" },
+      "CSV files are single-sheet. If your data spans multiple sheets, export each sheet separately and import one at a time."
+    );
+    const PREVIEW_LIMIT = 100;
+    const preview = rows.slice(0, PREVIEW_LIMIT);
+    const hasMore = rows.length > PREVIEW_LIMIT;
+    const tableWrap = h("div", { class: "imp-scroll" });
+    if (rows.length === 0) {
+      tableWrap.appendChild(h(
+        "div",
+        { class: "imp-empty" },
+        "No valid rows found. Make sure your CSV has a header row and at least one data row with a Party or Invoice # value."
+      ));
+    } else {
+      const thead = h("thead", null, h(
+        "tr",
+        null,
+        ...columns.map((col) => h("th", null, col.label))
+      ));
+      const tbody = h(
+        "tbody",
+        null,
+        ...preview.map((row) => h(
+          "tr",
+          null,
+          ...columns.map((col) => {
+            const val = String(row[col.key] ?? "");
+            const cell = h("td", null, val);
+            if (!val) cell.classList.add("imp-td-empty");
+            return cell;
+          })
+        ))
+      );
+      tableWrap.appendChild(h("table", { class: "imp-table" }, thead, tbody));
+      if (hasMore) {
+        tableWrap.appendChild(h(
+          "div",
+          { class: "imp-more" },
+          `Showing first ${PREVIEW_LIMIT} of ${rows.length} rows \u2014 all ${rows.length} will be imported.`
+        ));
+      }
+    }
+    const summary = h(
+      "div",
+      { class: "imp-summary" },
+      rows.length > 0 ? h("span", null, `${rows.length} row${rows.length !== 1 ? "s" : ""} ready to import`) : h("span", { class: "imp-warn" }, "Nothing to import")
+    );
+    const cancelBtn = h("button", { class: "imp-btn-cancel", onClick: close }, "Cancel");
+    const confirmBtn = h("button", {
+      class: "imp-btn-confirm",
+      disabled: rows.length === 0,
+      onClick: () => {
+        onConfirm(rows);
+        close();
+      }
+    }, `Import ${rows.length} row${rows.length !== 1 ? "s" : ""}`);
+    const footer = h("div", { class: "imp-footer" }, summary, h("div", { class: "imp-footer-btns" }, cancelBtn, confirmBtn));
+    const dialog = h("div", { class: "imp-dialog" });
+    dialog.appendChild(hdr);
+    dialog.appendChild(mappingEl);
+    dialog.appendChild(sheetNote);
+    dialog.appendChild(tableWrap);
+    dialog.appendChild(footer);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+  }
+  function buildCSVUploadBtn(label, prepare, doImport) {
+    const btn = h("button", { class: "bgt-csv-btn", title: `Import ${label} from CSV` }, "\u2B06 CSV");
+    btn.addEventListener("click", () => {
+      const fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.accept = ".csv,text/csv,text/plain";
+      fileInput.addEventListener("change", () => {
+        const file = fileInput.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const { headers, rows: rawRows } = parseCSV(e.target.result || "");
+            const { rows, columns } = prepare(rawRows, file.name);
+            showImportPreview({
+              title: `Import ${label}`,
+              filename: file.name,
+              csvHeaders: headers,
+              rows,
+              columns,
+              onConfirm: (importedRows) => {
+                doImport(importedRows);
+                btn.textContent = `\u2713 ${importedRows.length} imported`;
+                btn.classList.add("bgt-copy-ok");
+                setTimeout(() => {
+                  btn.textContent = "\u2B06 CSV";
+                  btn.classList.remove("bgt-copy-ok");
+                }, 3e3);
+              }
+            });
+          } catch (err) {
+            console.error("[CSV import]", err);
+            btn.textContent = "\u2717 Parse error";
+            btn.classList.add("bgt-csv-err");
+            setTimeout(() => {
+              btn.textContent = "\u2B06 CSV";
+              btn.classList.remove("bgt-csv-err");
+            }, 3e3);
+          }
+        };
+        reader.readAsText(file);
+      });
+      fileInput.click();
+    });
+    return btn;
+  }
+  async function loadSheetJS() {
+    if (window.XLSX) return window.XLSX;
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+      s.onload = () => resolve(window.XLSX);
+      s.onerror = () => reject(new Error("Could not load Excel parser \u2014 check your internet connection."));
+      document.head.appendChild(s);
+    });
+  }
+  function detectHeaderRow(allRows, keywords) {
+    for (let i = 0; i < Math.min(allRows.length, 25); i++) {
+      const lower = allRows[i].map((c) => String(c ?? "").toLowerCase().trim());
+      if (keywords.every((kw) => lower.some((c) => c.includes(kw)))) return i;
+    }
+    return -1;
+  }
+  async function parseXLSXFile(file) {
+    const XLSX = await loadSheetJS();
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array", cellFormula: false, cellDates: true });
+    const CONS_KWS = ["party", "quote", "contingency"];
+    const INV_KWS = ["party", "invoice", "status"];
+    return wb.SheetNames.map((sheetName) => {
+      const ws = wb.Sheets[sheetName];
+      const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false, dateNF: "yyyy-mm-dd" });
+      let type = null;
+      let hdrIdx = -1;
+      if ((hdrIdx = detectHeaderRow(allRows, CONS_KWS)) >= 0) type = "consultants";
+      else if ((hdrIdx = detectHeaderRow(allRows, INV_KWS)) >= 0) type = "invoices";
+      let objects = [];
+      if (hdrIdx >= 0) {
+        const hdrs = allRows[hdrIdx].map((c) => String(c ?? "").toLowerCase().replace(/[£%?/]+/g, "").trim());
+        objects = allRows.slice(hdrIdx + 1).filter((r) => r.some((c) => c !== "" && c != null)).map((r) => {
+          const obj = {};
+          hdrs.forEach((h2, i) => {
+            obj[h2] = String(r[i] ?? "").trim();
+          });
+          return obj;
+        });
+      }
+      return { name: sheetName, type, objects };
+    });
+  }
+  function mapToConsultant(row) {
+    return {
+      party: get2(row, "party", "firm", "name"),
+      company: get2(row, "company"),
+      contact: get2(row, "contact"),
+      appointed: get2(row, "appointed") || "\u2014",
+      discipline: get2(row, "discipline"),
+      category: get2(row, "category", "cat"),
+      subCategory: get2(row, "sub category", "subcategory", "sub-category"),
+      quote: get2(row, "quote", "fee"),
+      contingencyPct: get2(row, "contingency", "cont") || "10",
+      invoicingDone: false,
+      comments: get2(row, "comments", "notes", "comment")
+    };
+  }
+  function mapToInvoice(row, catId) {
+    const party = get2(row, "party", "firm", "supplier", "vendor");
+    const invNum = get2(row, "invoice #", "invoice number", "inv #", "inv no");
+    const cons = getPanelData().categories.find((c) => c.id === catId)?.budget?.consultants || [];
+    const match = cons.find((c) => c.party && c.party.toLowerCase() === party.toLowerCase());
+    return {
+      party,
+      company: match?.company || get2(row, "company"),
+      project: get2(row, "project") || bibleField(catId, "project", "project name"),
+      dm: get2(row, "dm", "development manager") || bibleField(catId, "dm", "development manager", "project manager"),
+      spvName: get2(row, "spv company", "spv name", "spv") || bibleField(catId, "spv name", "spv"),
+      documentType: get2(row, "document", "doc type", "type") || "Invoice",
+      discipline: match?.discipline || get2(row, "discipline"),
+      category: match?.category || get2(row, "category", "cat"),
+      subCategory: match?.subCategory || get2(row, "sub category", "subcategory", "sub-category"),
+      invoiceDate: get2(row, "invoice date", "date"),
+      invoiceNumber: invNum,
+      dueDate: get2(row, "due date"),
+      status: get2(row, "status") || "Pending",
+      net: get2(row, "net value", "net", "amount"),
+      vat: get2(row, "vat"),
+      accountsDate: get2(row, "accounts"),
+      paidDate: get2(row, "paid"),
+      comment: get2(row, "comment", "comments", "notes"),
+      consultantId: match?.id || ""
+    };
+  }
+  var XLSX_COLS = {
+    consultants: [
+      { label: "Party", key: "party" },
+      { label: "Company", key: "company" },
+      { label: "Discipline", key: "discipline" },
+      { label: "Category", key: "category" },
+      { label: "Sub-Cat", key: "subCategory" },
+      { label: "Quote \xA3", key: "quote" },
+      { label: "Cont %", key: "contingencyPct" },
+      { label: "Appointed", key: "appointed" },
+      { label: "Comments", key: "comments" }
+    ],
+    invoices: [
+      { label: "Party", key: "party" },
+      { label: "Invoice #", key: "invoiceNumber" },
+      { label: "Invoice Date", key: "invoiceDate" },
+      { label: "Doc Type", key: "documentType" },
+      { label: "Net \xA3", key: "net" },
+      { label: "VAT \xA3", key: "vat" },
+      { label: "Status", key: "status" },
+      { label: "Category", key: "category" },
+      { label: "Due Date", key: "dueDate" }
+    ]
+  };
+  function showXLSXPreview(catId, sheets, filename) {
+    const overlay = h("div", { class: "imp-overlay" });
+    const close = () => overlay.remove();
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) close();
+    });
+    const include = new Map(sheets.map((s) => [s.name, s.type !== null]));
+    const TYPE_LABEL = { consultants: "Budget / Consultants", invoices: "Invoices / Payment Tracker" };
+    const TYPE_CLS = { consultants: "imp-type-cons", invoices: "imp-type-inv" };
+    let activeSheet = sheets.find((s) => s.type)?.name;
+    const sheetListEl = h("tbody");
+    const previewEl = h("div", { class: "imp-scroll" });
+    const summaryEl = h("span", { class: "imp-summary" });
+    const importBtn = h("button", { class: "imp-btn-confirm" }, "Import");
+    const countRows = (s) => s.type === "consultants" ? s.objects.filter((r) => get2(r, "party", "firm", "name")).length : s.objects.filter((r) => get2(r, "party", "firm", "supplier", "vendor") || get2(r, "invoice #", "invoice number", "inv #", "inv no")).length;
+    const renderAll = () => {
+      sheetListEl.innerHTML = "";
+      sheets.forEach((s) => {
+        const isOn = include.get(s.name);
+        const count = s.type ? countRows(s) : null;
+        const toggle = h(
+          "button",
+          { class: `imp-toggle${isOn ? " imp-toggle-on" : ""}`, disabled: !s.type },
+          isOn ? "Include" : "Skip"
+        );
+        if (s.type) {
+          toggle.addEventListener("click", () => {
+            include.set(s.name, !isOn);
+            if (!isOn) activeSheet = s.name;
+            renderAll();
+          });
+        }
+        const nameEl = h("td", { class: `imp-sheet-name${s.name === activeSheet ? " imp-sheet-active-name" : ""}` }, s.name);
+        if (s.type) nameEl.addEventListener("click", () => {
+          activeSheet = s.name;
+          renderAll();
+        });
+        sheetListEl.appendChild(h(
+          "tr",
+          { class: s.name === activeSheet ? "imp-sheet-row-active" : "imp-sheet-row" },
+          nameEl,
+          h("td", null, s.type ? h("span", { class: `imp-type-badge ${TYPE_CLS[s.type]}` }, TYPE_LABEL[s.type]) : h("span", { class: "imp-type-badge imp-type-none" }, "Not recognised")),
+          h("td", { class: "imp-sheet-count" }, count != null ? `${count} rows` : "\u2014"),
+          h("td", { class: "imp-sheet-toggle-cell" }, toggle)
+        ));
+      });
+      previewEl.innerHTML = "";
+      const sheet = sheets.find((s) => s.name === activeSheet);
+      if (!sheet || !sheet.type) {
+        previewEl.appendChild(h("div", { class: "imp-empty" }, "Click a recognised sheet above to preview its data."));
+      } else {
+        const cols = XLSX_COLS[sheet.type];
+        const mapped = sheet.type === "consultants" ? sheet.objects.map(mapToConsultant).filter((r) => r.party) : sheet.objects.map((r) => mapToInvoice(r, catId)).filter((r) => r.party || r.invoiceNumber);
+        const preview = mapped.slice(0, 100);
+        if (!preview.length) {
+          previewEl.appendChild(h("div", { class: "imp-empty" }, "No valid rows found in this sheet."));
+        } else {
+          previewEl.appendChild(h(
+            "div",
+            { class: "imp-preview-label" },
+            `${sheet.name}  \xB7  ${TYPE_LABEL[sheet.type]}  \xB7  ${mapped.length} rows`
+          ));
+          const table = h(
+            "table",
+            { class: "imp-table" },
+            h("thead", null, h("tr", null, ...cols.map((c) => h("th", null, c.label)))),
+            h("tbody", null, ...preview.map((row) => h("tr", null, ...cols.map((c) => {
+              const val = String(row[c.key] ?? "");
+              const cell = h("td", null, val);
+              if (!val) cell.classList.add("imp-td-empty");
+              return cell;
+            }))))
+          );
+          previewEl.appendChild(table);
+          if (mapped.length > 100) previewEl.appendChild(h("div", { class: "imp-more" }, `Showing first 100 of ${mapped.length} rows.`));
+        }
+      }
+      const included = sheets.filter((s) => s.type && include.get(s.name));
+      const total = included.reduce((n, s) => n + countRows(s), 0);
+      const parts = [];
+      const nCons = included.filter((s) => s.type === "consultants").reduce((n, s) => n + countRows(s), 0);
+      const nInv = included.filter((s) => s.type === "invoices").reduce((n, s) => n + countRows(s), 0);
+      if (nCons) parts.push(`${nCons} consultant${nCons !== 1 ? "s" : ""}`);
+      if (nInv) parts.push(`${nInv} invoice${nInv !== 1 ? "s" : ""}`);
+      summaryEl.textContent = total > 0 ? `Ready to import: ${parts.join(" + ")}` : "No sheets selected";
+      importBtn.disabled = total === 0;
+      importBtn.textContent = total > 0 ? `Import ${total} rows` : "Import";
+    };
+    importBtn.addEventListener("click", () => {
+      const conSheets = sheets.filter((s) => s.type === "consultants" && include.get(s.name));
+      const invSheets = sheets.filter((s) => s.type === "invoices" && include.get(s.name));
+      conSheets.forEach((s) => s.objects.map(mapToConsultant).filter((r) => r.party).forEach((r) => addBudgetConsultant(catId, r)));
+      invSheets.forEach((s) => s.objects.map((r) => mapToInvoice(r, catId)).filter((r) => r.party || r.invoiceNumber).forEach((r) => addBudgetInvoice(catId, r)));
+      close();
+    });
+    const dialog = h("div", { class: "imp-dialog" });
+    dialog.appendChild(h(
+      "div",
+      { class: "imp-hdr" },
+      h(
+        "div",
+        { class: "imp-hdr-left" },
+        h("div", { class: "imp-title" }, "Import from Excel"),
+        h("div", { class: "imp-filename" }, filename)
+      ),
+      h("button", { class: "imp-x", onClick: close }, "\xD7")
+    ));
+    dialog.appendChild(h(
+      "div",
+      { class: "imp-sheet-note" },
+      "Values only \u2014 formula results are imported, not the formulas themselves. Multi-sheet files are imported in one go; consultants are imported before invoices so budget links resolve correctly."
+    ));
+    dialog.appendChild(h(
+      "div",
+      { class: "imp-sheetlist-wrap" },
+      h(
+        "table",
+        { class: "imp-sheetlist" },
+        h("thead", null, h(
+          "tr",
+          null,
+          h("th", null, "Sheet"),
+          h("th", null, "Detected as"),
+          h("th", null, "Rows"),
+          h("th", null, "")
+        )),
+        sheetListEl
+      )
+    ));
+    dialog.appendChild(previewEl);
+    dialog.appendChild(h(
+      "div",
+      { class: "imp-footer" },
+      summaryEl,
+      h(
+        "div",
+        { class: "imp-footer-btns" },
+        h("button", { class: "imp-btn-cancel", onClick: close }, "Cancel"),
+        importBtn
+      )
+    ));
+    renderAll();
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+  }
+  function buildExcelImportBtn(catId) {
+    const btn = h("button", { class: "bgt-xlsx-btn", title: "Import from Excel (.xlsx) \u2014 reads both budget and invoice sheets at once" }, "\u{1F4E5} Excel");
+    btn.addEventListener("click", () => {
+      const fi = document.createElement("input");
+      fi.type = "file";
+      fi.accept = ".xlsx,.xls";
+      fi.addEventListener("change", async () => {
+        const file = fi.files?.[0];
+        if (!file) return;
+        const orig = btn.textContent;
+        btn.textContent = "Reading\u2026";
+        btn.disabled = true;
+        try {
+          const sheets = await parseXLSXFile(file);
+          showXLSXPreview(catId, sheets, file.name);
+        } catch (err) {
+          alert(`Could not read Excel file:
+${err.message}`);
+        } finally {
+          btn.textContent = orig;
+          btn.disabled = false;
+        }
+      });
+      fi.click();
+    });
     return btn;
   }
   function getConsultantTotals(consultantId, invoices) {
@@ -24932,8 +25412,8 @@ ${suffix}`;
             h("th", null, "Category"),
             h("th", { class: "bgt-r" }, "Quote"),
             h("th", { class: "bgt-r" }, "Budget"),
-            h("th", { class: "bgt-r bgt-auto-hdr" }, "Invoiced \u2197"),
-            h("th", { class: "bgt-r bgt-auto-hdr" }, "Paid \u2197"),
+            h("th", { class: "bgt-r bgt-auto-hdr" }, "Invoiced"),
+            h("th", { class: "bgt-r bgt-auto-hdr" }, "Paid"),
             h("th", { class: "bgt-r" }, "Balance")
           )),
           h("tbody", null, ...Object.entries(byCategory).map(([k, v]) => dataRow(k, v))),
@@ -24999,42 +25479,74 @@ ${suffix}`;
         comments: ""
       })
     );
-    return h(
-      "div",
-      { class: "bgt-block" },
-      h("div", { class: "bgt-block-title" }, "Consultants"),
-      h(
-        "div",
-        { class: "bgt-scroll" },
-        h(
-          "table",
-          { class: "bgt-table" },
-          h("thead", null, h(
-            "tr",
-            null,
-            h("th", null, "Party"),
-            h("th", null, "Company"),
-            h("th", null, "Contact"),
-            h("th", null, "Appointed"),
-            h("th", null, "Discipline"),
-            h("th", null, "Category"),
-            h("th", null, "Sub-Category"),
-            h("th", { class: "bgt-r" }, "Quote \xA3"),
-            h("th", { class: "bgt-r" }, "Cont %"),
-            h("th", { class: "bgt-r bgt-auto-hdr" }, "Budget \xA3"),
-            h("th", { class: "bgt-r bgt-auto-hdr" }, "Accounts \xA3 \u2197"),
-            h("th", { class: "bgt-r bgt-auto-hdr" }, "Paid \xA3 \u2197"),
-            h("th", { class: "bgt-r bgt-auto-hdr" }, "Invoiced \xA3 \u2197"),
-            h("th", { class: "bgt-r bgt-auto-hdr" }, "Balance \xA3"),
-            h("th", { class: "bgt-done-hdr", title: "Tick when invoicing is complete \u2014 balance turns green" }, "Done?"),
-            h("th", null, "Comments"),
-            h("th", null, "")
-          )),
-          h("tbody", null, ...rows)
-        )
-      ),
-      addBtn
+    const csvBtn = buildCSVUploadBtn(
+      "consultants",
+      (rawRows) => ({
+        rows: rawRows.map((row) => ({
+          party: get2(row, "party", "firm", "name", "supplier", "consultant"),
+          company: get2(row, "company"),
+          contact: get2(row, "contact", "person"),
+          appointed: get2(row, "appointed") || "\u2014",
+          discipline: get2(row, "discipline"),
+          category: get2(row, "category", "cat"),
+          subCategory: get2(row, "sub-category", "subcategory", "sub category", "sub"),
+          quote: get2(row, "quote", "fee", "amount", "quote "),
+          contingencyPct: get2(row, "contingency", "cont", "cont %", "contingency %") || "10",
+          invoicingDone: false,
+          comments: get2(row, "comments", "notes", "comment")
+        })).filter((r) => r.party),
+        columns: [
+          { label: "Party", key: "party" },
+          { label: "Company", key: "company" },
+          { label: "Contact", key: "contact" },
+          { label: "Discipline", key: "discipline" },
+          { label: "Category", key: "category" },
+          { label: "Sub-Cat", key: "subCategory" },
+          { label: "Quote \xA3", key: "quote" },
+          { label: "Cont %", key: "contingencyPct" },
+          { label: "Appointed", key: "appointed" },
+          { label: "Comments", key: "comments" }
+        ]
+      }),
+      (rows2) => rows2.forEach((r) => addBudgetConsultant(catId, r))
     );
+    const block = h("div", { class: "bgt-block" });
+    block.appendChild(h("div", { class: "bgt-block-title" }, "Consultants"));
+    block.appendChild(h(
+      "div",
+      { class: "bgt-scroll" },
+      h(
+        "table",
+        { class: "bgt-table" },
+        h("thead", null, h(
+          "tr",
+          null,
+          h("th", null, "Party"),
+          h("th", null, "Company"),
+          h("th", null, "Contact"),
+          h("th", null, "Appointed"),
+          h("th", null, "Discipline"),
+          h("th", null, "Category"),
+          h("th", null, "Sub-Category"),
+          h("th", { class: "bgt-r" }, "Quote \xA3"),
+          h("th", { class: "bgt-r" }, "Cont %"),
+          h("th", { class: "bgt-r bgt-auto-hdr" }, "Budget \xA3"),
+          h("th", { class: "bgt-r bgt-auto-hdr" }, "Accounts \xA3"),
+          h("th", { class: "bgt-r bgt-auto-hdr" }, "Paid \xA3"),
+          h("th", { class: "bgt-r bgt-auto-hdr" }, "Invoiced \xA3"),
+          h("th", { class: "bgt-r bgt-auto-hdr" }, "Balance \xA3"),
+          h("th", { class: "bgt-done-hdr", title: "Tick when invoicing is complete \u2014 balance turns green" }, "Done?"),
+          h("th", null, "Comments"),
+          h("th", null, "")
+        )),
+        h("tbody", null, ...rows)
+      )
+    ));
+    const actionsRow = h("div", { class: "bgt-actions-row" });
+    actionsRow.appendChild(addBtn);
+    actionsRow.appendChild(csvBtn);
+    block.appendChild(actionsRow);
+    return block;
   }
   var STATUSES = ["Pending", "Approved", "Paid", "Disputed"];
   var DOC_TYPES = ["Invoice", "Undertaking", "Payable", "Quote"];
@@ -25094,7 +25606,7 @@ ${suffix}`;
       _selCatId = catId;
     }
   }
-  function buildInvoiceTable(catId, invoices, consultants, onSelectionChange) {
+  function buildInvoiceTable(catId, invoices, consultants, onSelectionChange, csvBtn) {
     clearSelectionIfNeeded(catId);
     ensurePartyDatalist(catId, consultants);
     const allIds = invoices.map((i) => i.id);
@@ -25189,50 +25701,57 @@ ${suffix}`;
         consultantId: ""
       })
     );
-    return h(
+    const block = h("div", { class: "bgt-block" });
+    block.appendChild(h(
       "div",
-      { class: "bgt-block" },
+      { class: "bgt-scroll" },
       h(
-        "div",
-        { class: "bgt-scroll" },
-        h(
-          "table",
-          { class: "bgt-table" },
-          h("thead", null, h(
-            "tr",
-            null,
-            h("th", { class: "bgt-sel-hdr" }, headerChk),
-            h("th", null, "Party"),
-            h("th", null, "Company"),
-            h("th", { class: "bgt-auto-hdr", title: "Pre-filled from Project Bible" }, "Project \u2197"),
-            h("th", { class: "bgt-auto-hdr", title: "Pre-filled from Project Bible" }, "DM \u2197"),
-            h("th", { class: "bgt-auto-hdr", title: "Pre-filled from Project Bible" }, "SPV Name \u2197"),
-            h("th", null, "Doc Type"),
-            h("th", null, "Discipline"),
-            h("th", null, "Category"),
-            h("th", null, "Sub-Category"),
-            h("th", null, "Invoice Date"),
-            h("th", null, "Invoice #"),
-            h("th", null, "Due Date"),
-            h("th", null, "Status"),
-            h("th", { class: "bgt-r" }, "Net \xA3"),
-            h("th", { class: "bgt-r" }, "VAT \xA3"),
-            h("th", { class: "bgt-r" }, "Total \xA3"),
-            h("th", null, "Accounts Date"),
-            h("th", null, "Paid Date"),
-            h("th", null, "Comment"),
-            h("th", null, "")
-          )),
-          h("tbody", null, ...rows)
-        )
-      ),
-      addBtn
-    );
+        "table",
+        { class: "bgt-table" },
+        h("thead", null, h(
+          "tr",
+          null,
+          h("th", { class: "bgt-sel-hdr" }, headerChk),
+          h("th", null, "Party"),
+          h("th", null, "Company"),
+          h("th", { class: "bgt-auto-hdr", title: "Pre-filled from Project Bible" }, "Project \u2197"),
+          h("th", { class: "bgt-auto-hdr", title: "Pre-filled from Project Bible" }, "DM \u2197"),
+          h("th", { class: "bgt-auto-hdr", title: "Pre-filled from Project Bible" }, "SPV Name \u2197"),
+          h("th", null, "Doc Type"),
+          h("th", null, "Discipline"),
+          h("th", null, "Category"),
+          h("th", null, "Sub-Category"),
+          h("th", null, "Invoice Date"),
+          h("th", null, "Invoice #"),
+          h("th", null, "Due Date"),
+          h("th", null, "Status"),
+          h("th", { class: "bgt-r" }, "Net \xA3"),
+          h("th", { class: "bgt-r" }, "VAT \xA3"),
+          h("th", { class: "bgt-r" }, "Total \xA3"),
+          h("th", null, "Accounts Date"),
+          h("th", null, "Paid Date"),
+          h("th", null, "Comment"),
+          h("th", null, "")
+        )),
+        h("tbody", null, ...rows)
+      )
+    ));
+    const actionsRow = h("div", { class: "bgt-actions-row" });
+    actionsRow.appendChild(addBtn);
+    if (csvBtn) actionsRow.appendChild(csvBtn);
+    block.appendChild(actionsRow);
+    return block;
   }
   function buildBudgetView(catId) {
     const cat = getPanelData().categories.find((c) => c.id === catId);
     const budget = cat?.budget || { consultants: [], invoices: [] };
     const frag = document.createDocumentFragment();
+    frag.appendChild(h(
+      "div",
+      { class: "bgt-xlsx-bar" },
+      h("span", { class: "bgt-xlsx-bar-label" }, "Import a multi-sheet spreadsheet to populate both budget and invoices at once:"),
+      buildExcelImportBtn(catId)
+    ));
     const pivot = buildPivot(budget.consultants, budget.invoices);
     if (pivot) frag.appendChild(pivot);
     frag.appendChild(buildConsultants(catId, budget.consultants, budget.invoices));
@@ -25317,6 +25836,60 @@ ${suffix}`;
     const copyBtn = buildCopyBtn(
       () => getPanelData().categories.find((c) => c.id === catId)?.budget?.invoices || []
     );
+    const invCsvBtn = buildCSVUploadBtn(
+      "invoices",
+      (rawRows) => {
+        const consultants = getPanelData().categories.find((c) => c.id === catId)?.budget?.consultants || [];
+        const rows = rawRows.map((row) => {
+          const party = get2(row, "party", "firm", "supplier", "vendor", "name");
+          const invNum = get2(row, "invoice #", "invoice number", "inv #", "inv no", "ref", "invoice no");
+          const match = consultants.find((c) => c.party && c.party.toLowerCase() === party.toLowerCase());
+          return {
+            party,
+            company: match?.company || get2(row, "company"),
+            project: get2(row, "project") || bibleField(catId, "project", "project name"),
+            dm: get2(row, "dm", "development manager") || bibleField(catId, "dm", "development manager", "project manager"),
+            spvName: get2(row, "spv name", "spv") || bibleField(catId, "spv name", "spv", "spv entity"),
+            documentType: get2(row, "doc type", "document type", "type") || "Invoice",
+            discipline: match?.discipline || get2(row, "discipline"),
+            category: match?.category || get2(row, "category", "cat"),
+            subCategory: match?.subCategory || get2(row, "sub-category", "subcategory", "sub category", "sub"),
+            invoiceDate: get2(row, "invoice date", "date"),
+            invoiceNumber: invNum,
+            dueDate: get2(row, "due date"),
+            status: get2(row, "status") || "Pending",
+            net: get2(row, "net", "net ", "net amount", "amount", "ex vat", "excl vat"),
+            vat: get2(row, "vat", "vat ", "tax"),
+            accountsDate: get2(row, "accounts date", "accounts"),
+            paidDate: get2(row, "paid date", "paid"),
+            comment: get2(row, "comment", "comments", "notes"),
+            consultantId: match?.id || ""
+          };
+        }).filter((r) => r.party || r.invoiceNumber);
+        return {
+          rows,
+          columns: [
+            { label: "Party", key: "party" },
+            { label: "Invoice #", key: "invoiceNumber" },
+            { label: "Invoice Date", key: "invoiceDate" },
+            { label: "Doc Type", key: "documentType" },
+            { label: "Net \xA3", key: "net" },
+            { label: "VAT \xA3", key: "vat" },
+            { label: "Status", key: "status" },
+            { label: "Category", key: "category" },
+            { label: "Due Date", key: "dueDate" },
+            { label: "Comment", key: "comment" }
+          ]
+        };
+      },
+      (rows) => rows.forEach((r) => addBudgetInvoice(catId, r))
+    );
+    frag.appendChild(h(
+      "div",
+      { class: "bgt-xlsx-bar" },
+      h("span", { class: "bgt-xlsx-bar-label" }, "Import a multi-sheet spreadsheet to populate both budget and invoices at once:"),
+      buildExcelImportBtn(catId)
+    ));
     const titleRow = h(
       "div",
       { class: "bgt-title-row" },
@@ -25324,7 +25897,7 @@ ${suffix}`;
       copyBtn
     );
     frag.appendChild(titleRow);
-    frag.appendChild(buildInvoiceTable(catId, budget.invoices, budget.consultants, () => copyBtn.refresh()));
+    frag.appendChild(buildInvoiceTable(catId, budget.invoices, budget.consultants, () => copyBtn.refresh(), invCsvBtn));
     return frag;
   }
 
