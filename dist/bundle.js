@@ -25212,7 +25212,7 @@ ${suffix}`;
     return {
       party: get2(row, "party", "firm", "name"),
       company: get2(row, "company"),
-      contact: get2(row, "contact"),
+      contact: get2(row, "contact", "email", "e-mail", "email address"),
       appointed: get2(row, "appointed") || "\u2014",
       discipline: get2(row, "discipline"),
       category: get2(row, "category", "cat"),
@@ -25220,8 +25220,7 @@ ${suffix}`;
       quote: cleanNumber(get2(row, "quote", "fee")),
       contingencyPct: normaliseContingency(cleanNumber(get2(row, "contingency", "cont"))),
       invoicingDone: false,
-      comments: get2(row, "comments", "notes", "comment"),
-      email: get2(row, "email", "e-mail", "email address")
+      comments: get2(row, "comments", "notes", "comment")
     };
   }
   function mapToInvoice(row, catId) {
@@ -25256,7 +25255,6 @@ ${suffix}`;
       { label: "Party", key: "party" },
       { label: "Company", key: "company" },
       { label: "Contact", key: "contact" },
-      { label: "Email", key: "email" },
       { label: "Discipline", key: "discipline" },
       { label: "Category", key: "category" },
       { label: "Sub-Cat", key: "subCategory" },
@@ -25568,7 +25566,6 @@ ${err.message}`);
         td(inp(c.party, "Party", (v) => upd2({ party: v }))),
         td(inp(c.company, "Company", (v) => upd2({ company: v }))),
         td(inp(c.contact, "Contact", (v) => upd2({ contact: v }))),
-        td(inp(c.email, "Email", (v) => upd2({ email: v }))),
         td(selStr(c.appointed || "\u2014", APPOINTED, (v) => upd2({ appointed: v }))),
         td(inp(c.discipline, "Discipline", (v) => upd2({ discipline: v }))),
         td(inp(c.category, "Category", (v) => upd2({ category: v }))),
@@ -25592,7 +25589,6 @@ ${err.message}`);
         party: "",
         company: "",
         contact: "",
-        email: "",
         appointed: "\u2014",
         discipline: "",
         category: "",
@@ -25609,7 +25605,7 @@ ${err.message}`);
         rows: rawRows.map((row) => ({
           party: get2(row, "party", "firm", "name", "supplier", "consultant"),
           company: get2(row, "company"),
-          contact: get2(row, "contact", "person"),
+          contact: get2(row, "contact", "person", "email", "e-mail", "email address"),
           appointed: get2(row, "appointed") || "\u2014",
           discipline: get2(row, "discipline"),
           category: get2(row, "category", "cat"),
@@ -25617,14 +25613,12 @@ ${err.message}`);
           quote: cleanNumber(get2(row, "quote", "fee", "amount", "quote ")),
           contingencyPct: normaliseContingency(cleanNumber(get2(row, "contingency", "cont", "cont %", "contingency %"))),
           invoicingDone: false,
-          comments: get2(row, "comments", "notes", "comment"),
-          email: get2(row, "email", "e-mail", "email address")
+          comments: get2(row, "comments", "notes", "comment")
         })).filter((r) => r.party),
         columns: [
           { label: "Party", key: "party" },
           { label: "Company", key: "company" },
           { label: "Contact", key: "contact" },
-          { label: "Email", key: "email" },
           { label: "Discipline", key: "discipline" },
           { label: "Category", key: "category" },
           { label: "Sub-Cat", key: "subCategory" },
@@ -25650,7 +25644,6 @@ ${err.message}`);
           h("th", null, "Party"),
           h("th", null, "Company"),
           h("th", null, "Contact"),
-          h("th", null, "Email"),
           h("th", null, "Appointed"),
           h("th", null, "Discipline"),
           h("th", null, "Category"),

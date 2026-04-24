@@ -399,7 +399,7 @@ function mapToConsultant(row) {
   return {
     party:          get(row, 'party', 'firm', 'name'),
     company:        get(row, 'company'),
-    contact:        get(row, 'contact'),
+    contact:        get(row, 'contact', 'email', 'e-mail', 'email address'),
     appointed:      get(row, 'appointed') || '—',
     discipline:     get(row, 'discipline'),
     category:       get(row, 'category', 'cat'),
@@ -408,7 +408,6 @@ function mapToConsultant(row) {
     contingencyPct: normaliseContingency(cleanNumber(get(row, 'contingency', 'cont'))),
     invoicingDone:  false,
     comments:       get(row, 'comments', 'notes', 'comment'),
-    email:          get(row, 'email', 'e-mail', 'email address'),
   };
 }
 
@@ -446,7 +445,6 @@ const XLSX_COLS = {
     { label: 'Party',      key: 'party' },
     { label: 'Company',    key: 'company' },
     { label: 'Contact',    key: 'contact' },
-    { label: 'Email',      key: 'email' },
     { label: 'Discipline', key: 'discipline' },
     { label: 'Category',   key: 'category' },
     { label: 'Sub-Cat',    key: 'subCategory' },
@@ -765,7 +763,6 @@ function buildConsultants(catId, consultants, invoices) {
       td(inp(c.party,          'Party',        v => upd({ party: v }))),
       td(inp(c.company,        'Company',      v => upd({ company: v }))),
       td(inp(c.contact,        'Contact',      v => upd({ contact: v }))),
-      td(inp(c.email,          'Email',        v => upd({ email: v }))),
       td(selStr(c.appointed || '—', APPOINTED, v => upd({ appointed: v }))),
       td(inp(c.discipline,     'Discipline',   v => upd({ discipline: v }))),
       td(inp(c.category,       'Category',     v => upd({ category: v }))),
@@ -786,7 +783,7 @@ function buildConsultants(catId, consultants, invoices) {
   const addBtn = h('button', { class: 'bgt-add-btn' }, '+ Add consultant');
   addBtn.addEventListener('click', () =>
     addBudgetConsultant(catId, {
-      party: '', company: '', contact: '', email: '', appointed: '—',
+      party: '', company: '', contact: '', appointed: '—',
       discipline: '', category: '', subCategory: '',
       quote: '', contingencyPct: '10', invoicingDone: false, comments: '',
     }),
@@ -800,7 +797,7 @@ function buildConsultants(catId, consultants, invoices) {
         .map(row => ({
           party:          get(row, 'party', 'firm', 'name', 'supplier', 'consultant'),
           company:        get(row, 'company'),
-          contact:        get(row, 'contact', 'person'),
+          contact:        get(row, 'contact', 'person', 'email', 'e-mail', 'email address'),
           appointed:      get(row, 'appointed') || '—',
           discipline:     get(row, 'discipline'),
           category:       get(row, 'category', 'cat'),
@@ -809,14 +806,12 @@ function buildConsultants(catId, consultants, invoices) {
           contingencyPct: normaliseContingency(cleanNumber(get(row, 'contingency', 'cont', 'cont %', 'contingency %'))),
           invoicingDone:  false,
           comments:       get(row, 'comments', 'notes', 'comment'),
-          email:          get(row, 'email', 'e-mail', 'email address'),
         }))
         .filter(r => r.party),
       columns: [
         { label: 'Party',       key: 'party' },
         { label: 'Company',     key: 'company' },
         { label: 'Contact',     key: 'contact' },
-        { label: 'Email',       key: 'email' },
         { label: 'Discipline',  key: 'discipline' },
         { label: 'Category',    key: 'category' },
         { label: 'Sub-Cat',     key: 'subCategory' },
@@ -837,7 +832,6 @@ function buildConsultants(catId, consultants, invoices) {
         h('th', null, 'Party'),
         h('th', null, 'Company'),
         h('th', null, 'Contact'),
-        h('th', null, 'Email'),
         h('th', null, 'Appointed'),
         h('th', null, 'Discipline'),
         h('th', null, 'Category'),
