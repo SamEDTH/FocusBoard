@@ -1,4 +1,4 @@
-import { S, setRenderFn, getPanelData, getFilteredItems, getActiveCatName, set, toggleSidebar, gotoDashboard, loadCalFreeMinutes, runFocusSync, initFromSupabase, enableCategoryFeature } from './store.js';
+import { S, setRenderFn, getPanelData, getFilteredItems, getActiveCatName, set, saveNav, toggleSidebar, gotoDashboard, loadCalFreeMinutes, runFocusSync, initFromSupabase, enableCategoryFeature } from './store.js';
 import { isSupabaseConfigured, onAuthStateChange } from './services/supabase.js';
 import { setGoogleFromSupabase } from './services/calendar.js';
 import { buildAuthGate } from './components/authGate.js';
@@ -185,7 +185,7 @@ function buildPanelHeader() {
       ...tabs.map(t =>
         h('button', {
           class: `cat-tab-btn${S.catTab === t ? ' active' : ''}`,
-          onClick: () => set({ catTab: t }),
+          onClick: () => { set({ catTab: t }); saveNav(); },
         }, tabLabels[t]),
       ),
     );

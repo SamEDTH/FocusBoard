@@ -21009,6 +21009,20 @@ ${suffix}`;
   function persistSettings() {
     saveSettings({ theme: S.theme, useSystemTheme: S.useSystemTheme, sidebarCollapsed: S.sidebarCollapsed, workStart: S.workStart, workEnd: S.workEnd, focusBuffer: S.focusBuffer, focusMinBlock: S.focusMinBlock, followUpDays: S.followUpDays });
   }
+  var NAV_KEY = "fb_nav";
+  function saveNav() {
+    try {
+      localStorage.setItem(NAV_KEY, JSON.stringify({ panel: S.panel, view: S.view, activeCat: S.activeCat, catTab: S.catTab }));
+    } catch {
+    }
+  }
+  function loadNav() {
+    try {
+      return JSON.parse(localStorage.getItem(NAV_KEY) || "null");
+    } catch {
+      return null;
+    }
+  }
   function updateFocusDefaults(buffer, minBlock) {
     S.focusBuffer = buffer;
     S.focusMinBlock = minBlock;
@@ -21031,11 +21045,12 @@ ${suffix}`;
     document.body.className = theme;
     renderFn();
   }
+  var _savedNav = loadNav();
   var S = {
     data: loadData(),
-    panel: "work",
-    view: "dashboard",
-    activeCat: null,
+    panel: _savedNav?.panel || "work",
+    view: _savedNav?.view || "dashboard",
+    activeCat: _savedNav?.activeCat || null,
     filter: "all",
     showAddItem: false,
     showAddCat: false,
@@ -21060,7 +21075,7 @@ ${suffix}`;
     // 'overdue' | 'dueToday' | 'upcoming' | 'chaseDue' | 'awaitingReply' | 'completed' | null
     dashTab: "all",
     // 'all' | 'today' | 'week'
-    catTab: "tasks",
+    catTab: _savedNav?.catTab || "tasks",
     // 'tasks' | 'bible' | 'budget' | 'invoices'
     focusBuffer: savedSettings.focusBuffer ?? 15,
     focusMinBlock: savedSettings.focusMinBlock ?? 30,
@@ -21220,15 +21235,19 @@ ${suffix}`;
   }
   function switchPanel(panel) {
     set({ panel, view: "dashboard", activeCat: null, filter: "all", showAddItem: false, showAddCat: false, dashFilter: null, dashTab: "all" });
+    saveNav();
   }
   function gotoCategory(id) {
     set({ view: "category", activeCat: id, filter: "all", showAddItem: false, showAddCat: false, dashFilter: null, catTab: "tasks" });
+    saveNav();
   }
   function gotoDashboard() {
     set({ view: "dashboard", activeCat: null, filter: "all", showAddItem: false, showAddCat: false, dashFilter: null, dashTab: "all" });
+    saveNav();
   }
   function gotoWorkload() {
     set({ view: "workload", activeCat: null, showAddItem: false, showAddCat: false, dashFilter: null });
+    saveNav();
   }
   function toggleTheme() {
     const theme = S.theme === "light" ? "dark" : "light";
@@ -21558,6 +21577,7 @@ ${suffix}`;
     }
     upd(newData);
     set({ catTab: feature });
+    saveNav();
   }
   function addBibleSection(catId) {
     const newData = JSON.parse(JSON.stringify(S.data));
@@ -21670,6 +21690,13 @@ ${suffix}`;
     cat.budget.consultants = cat.budget.consultants.filter((c) => c.id !== consultantId);
     upd(newData);
   }
+  function clearBudgetConsultants(catId) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat?.budget) return;
+    cat.budget.consultants = [];
+    upd(newData);
+  }
   function addBudgetInvoice(catId, data) {
     const newData = JSON.parse(JSON.stringify(S.data));
     const cat = newData[S.panel].categories.find((c) => c.id === catId);
@@ -21690,6 +21717,21 @@ ${suffix}`;
     const cat = newData[S.panel].categories.find((c) => c.id === catId);
     if (!cat?.budget) return;
     cat.budget.invoices = cat.budget.invoices.filter((i) => i.id !== invoiceId);
+    upd(newData);
+  }
+  function deleteBudgetInvoices(catId, ids) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat?.budget) return;
+    const set2 = new Set(ids);
+    cat.budget.invoices = cat.budget.invoices.filter((i) => !set2.has(i.id));
+    upd(newData);
+  }
+  function clearBudgetInvoices(catId) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat?.budget) return;
+    cat.budget.invoices = [];
     upd(newData);
   }
 
@@ -24919,6 +24961,35 @@ ${suffix}`;
     });
     return { headers: rawHeaders, rows };
   }
+  function cleanNumber(val) {
+    if (val == null || val === "") return "";
+    const s = String(val).replace(/[^\d.\-]/g, "");
+    if (!s || s === "-" || s === ".") return "";
+    const dot = s.indexOf(".");
+    const clean = dot < 0 ? s : s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, "");
+    return /^-?\d+\.?\d*$/.test(clean) ? clean : "";
+  }
+  var MONTHS = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12" };
+  function cleanDate(val) {
+    if (val == null || val === "") return "";
+    const s = String(val).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+    const named = s.match(/^(\d{1,2})[\s\-]([A-Za-z]{3,9})[\s\-](\d{2,4})$/);
+    if (named) {
+      const m = MONTHS[named[2].substring(0, 3).toLowerCase()];
+      if (m) {
+        const yr = named[3].length === 2 ? "20" + named[3] : named[3];
+        return `${yr}-${m}-${named[1].padStart(2, "0")}`;
+      }
+    }
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    }
+    return s;
+  }
   function get2(row, ...candidates) {
     for (const c of candidates) {
       const k = Object.keys(row).find((k2) => k2 === c || k2.includes(c));
@@ -25098,18 +25169,31 @@ ${suffix}`;
     const INV_KWS = ["party", "invoice", "status"];
     return wb.SheetNames.map((sheetName) => {
       const ws = wb.Sheets[sheetName];
-      const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false, dateNF: "yyyy-mm-dd" });
+      if (!ws["!ref"]) return { name: sheetName, type: null, objects: [] };
+      const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true }).map((row) => row.map((v) => {
+        if (v instanceof Date) {
+          return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, "0")}-${String(v.getDate()).padStart(2, "0")}`;
+        }
+        return String(v ?? "").trim();
+      }));
       let type = null;
       let hdrIdx = -1;
       if ((hdrIdx = detectHeaderRow(allRows, CONS_KWS)) >= 0) type = "consultants";
       else if ((hdrIdx = detectHeaderRow(allRows, INV_KWS)) >= 0) type = "invoices";
       let objects = [];
       if (hdrIdx >= 0) {
-        const hdrs = allRows[hdrIdx].map((c) => String(c ?? "").toLowerCase().replace(/[£%?/]+/g, "").trim());
-        objects = allRows.slice(hdrIdx + 1).filter((r) => r.some((c) => c !== "" && c != null)).map((r) => {
+        const hdrs = allRows[hdrIdx].map((c) => c.toLowerCase().replace(/[£%?/]+/g, "").trim());
+        const NUM_KEYS = /* @__PURE__ */ new Set(["quote", "fee", "net", "vat", "amount", "contingency", "cont", "total", "balance", "paid", "invoiced"]);
+        const DATE_KEYS = /* @__PURE__ */ new Set(["date", "due", "accounts", "paid date", "accounts date", "invoice date"]);
+        const cleaners = hdrs.map((h2) => {
+          if (NUM_KEYS.has(h2) || [...NUM_KEYS].some((k) => h2.includes(k))) return cleanNumber;
+          if (DATE_KEYS.has(h2) || [...DATE_KEYS].some((k) => h2.includes(k))) return cleanDate;
+          return (v) => v;
+        });
+        objects = allRows.slice(hdrIdx + 1).filter((r) => r.some((c) => c !== "")).map((r) => {
           const obj = {};
           hdrs.forEach((h2, i) => {
-            obj[h2] = String(r[i] ?? "").trim();
+            obj[h2] = cleaners[i](r[i] ?? "");
           });
           return obj;
         });
@@ -25126,8 +25210,8 @@ ${suffix}`;
       discipline: get2(row, "discipline"),
       category: get2(row, "category", "cat"),
       subCategory: get2(row, "sub category", "subcategory", "sub-category"),
-      quote: get2(row, "quote", "fee"),
-      contingencyPct: get2(row, "contingency", "cont") || "10",
+      quote: cleanNumber(get2(row, "quote", "fee")),
+      contingencyPct: cleanNumber(get2(row, "contingency", "cont")) || "10",
       invoicingDone: false,
       comments: get2(row, "comments", "notes", "comment")
     };
@@ -25147,14 +25231,14 @@ ${suffix}`;
       discipline: match?.discipline || get2(row, "discipline"),
       category: match?.category || get2(row, "category", "cat"),
       subCategory: match?.subCategory || get2(row, "sub category", "subcategory", "sub-category"),
-      invoiceDate: get2(row, "invoice date", "date"),
+      invoiceDate: cleanDate(get2(row, "invoice date", "date")),
       invoiceNumber: invNum,
-      dueDate: get2(row, "due date"),
+      dueDate: cleanDate(get2(row, "due date")),
       status: get2(row, "status") || "Pending",
-      net: get2(row, "net value", "net", "amount"),
-      vat: get2(row, "vat"),
-      accountsDate: get2(row, "accounts"),
-      paidDate: get2(row, "paid"),
+      net: cleanNumber(get2(row, "net value", "net", "amount")),
+      vat: cleanNumber(get2(row, "vat")),
+      accountsDate: cleanDate(get2(row, "accounts")),
+      paidDate: cleanDate(get2(row, "paid")),
       comment: get2(row, "comment", "comments", "notes"),
       consultantId: match?.id || ""
     };
@@ -25274,8 +25358,8 @@ ${suffix}`;
     importBtn.addEventListener("click", () => {
       const conSheets = sheets.filter((s) => s.type === "consultants" && include.get(s.name));
       const invSheets = sheets.filter((s) => s.type === "invoices" && include.get(s.name));
-      conSheets.forEach((s) => s.objects.map(mapToConsultant).filter((r) => r.party).forEach((r) => addBudgetConsultant(catId, r)));
-      invSheets.forEach((s) => s.objects.map((r) => mapToInvoice(r, catId)).filter((r) => r.party || r.invoiceNumber).forEach((r) => addBudgetInvoice(catId, r)));
+      conSheets.forEach((s) => s.objects.map(mapToConsultant).filter((r) => r.party).forEach((r) => upsertConsultant(catId, r)));
+      invSheets.forEach((s) => s.objects.map((r) => mapToInvoice(r, catId)).filter((r) => r.party || r.invoiceNumber).forEach((r) => upsertInvoice(catId, r)));
       close();
     });
     const dialog = h("div", { class: "imp-dialog" });
@@ -25354,6 +25438,34 @@ ${err.message}`);
       fi.click();
     });
     return btn;
+  }
+  function upsertConsultant(catId, data) {
+    const existing = getPanelData().categories.find((c) => c.id === catId)?.budget?.consultants || [];
+    const match = data.party ? existing.find((c) => c.party && c.party.toLowerCase() === data.party.toLowerCase()) : null;
+    if (match) {
+      updateBudgetConsultant(catId, match.id, data);
+      return "updated";
+    }
+    addBudgetConsultant(catId, data);
+    return "added";
+  }
+  function upsertInvoice(catId, data) {
+    const existing = getPanelData().categories.find((c) => c.id === catId)?.budget?.invoices || [];
+    let match = null;
+    if (data.invoiceNumber) {
+      match = existing.find((i) => i.invoiceNumber && i.invoiceNumber === data.invoiceNumber);
+    }
+    if (!match && data.party && data.invoiceDate && data.net) {
+      match = existing.find(
+        (i) => i.party?.toLowerCase() === data.party?.toLowerCase() && i.invoiceDate === data.invoiceDate && i.net === data.net
+      );
+    }
+    if (match) {
+      updateBudgetInvoice(catId, match.id, data);
+      return "updated";
+    }
+    addBudgetInvoice(catId, data);
+    return "added";
   }
   function getConsultantTotals(consultantId, invoices) {
     const linked = invoices.filter((i) => i.consultantId === consultantId);
@@ -25434,7 +25546,7 @@ ${err.message}`);
       const upd2 = (patch) => updateBudgetConsultant(catId, c.id, patch);
       const budget = num(c.quote) * (1 + num(c.contingencyPct) / 100);
       const totals = getConsultantTotals(c.id, invoices);
-      const balance = num(c.quote) - totals.invoiced;
+      const balance = budget - totals.invoiced;
       const hasActivity = num(c.quote) > 0 || totals.invoiced > 0;
       let balanceCls = balance < 0 ? "bgt-over" : "";
       if (balance >= 0 && hasActivity) {
@@ -25479,7 +25591,7 @@ ${err.message}`);
         comments: ""
       })
     );
-    const csvBtn = buildCSVUploadBtn(
+    const consCsvBtn = buildCSVUploadBtn(
       "consultants",
       (rawRows) => ({
         rows: rawRows.map((row) => ({
@@ -25490,8 +25602,8 @@ ${err.message}`);
           discipline: get2(row, "discipline"),
           category: get2(row, "category", "cat"),
           subCategory: get2(row, "sub-category", "subcategory", "sub category", "sub"),
-          quote: get2(row, "quote", "fee", "amount", "quote "),
-          contingencyPct: get2(row, "contingency", "cont", "cont %", "contingency %") || "10",
+          quote: cleanNumber(get2(row, "quote", "fee", "amount", "quote ")),
+          contingencyPct: cleanNumber(get2(row, "contingency", "cont", "cont %", "contingency %")) || "10",
           invoicingDone: false,
           comments: get2(row, "comments", "notes", "comment")
         })).filter((r) => r.party),
@@ -25508,7 +25620,7 @@ ${err.message}`);
           { label: "Comments", key: "comments" }
         ]
       }),
-      (rows2) => rows2.forEach((r) => addBudgetConsultant(catId, r))
+      (rows2) => rows2.forEach((r) => upsertConsultant(catId, r))
     );
     const block = h("div", { class: "bgt-block" });
     block.appendChild(h("div", { class: "bgt-block-title" }, "Consultants"));
@@ -25542,11 +25654,21 @@ ${err.message}`);
         h("tbody", null, ...rows)
       )
     ));
-    const actionsRow = h("div", { class: "bgt-actions-row" });
-    actionsRow.appendChild(addBtn);
-    actionsRow.appendChild(csvBtn);
+    const clearAllConsBtn = h("button", { class: "bgt-danger-btn", title: "Delete all consultants" }, "\u{1F5D1} Clear all");
+    clearAllConsBtn.addEventListener("click", async () => {
+      const n = consultants.length;
+      if (!n) return;
+      const ok = await showConfirm({ title: "Clear all consultants?", lines: [`This will permanently delete all ${n} consultant row${n !== 1 ? "s" : ""}.`], confirmText: "Delete all" });
+      if (ok) clearBudgetConsultants(catId);
+    });
+    const actionsRow = h(
+      "div",
+      { class: "bgt-actions-row" },
+      h("div", { class: "bgt-actions-left" }, addBtn),
+      h("div", { class: "bgt-actions-right" }, clearAllConsBtn)
+    );
     block.appendChild(actionsRow);
-    return block;
+    return { block, csvBtn: consCsvBtn };
   }
   var STATUSES = ["Pending", "Approved", "Paid", "Disputed"];
   var DOC_TYPES = ["Invoice", "Undertaking", "Payable", "Quote"];
@@ -25598,6 +25720,36 @@ ${err.message}`);
       dl.appendChild(opt);
     });
   }
+  var _filterState = {};
+  function buildFilterInput(key, placeholder, onFilter) {
+    const el = h("input", {
+      class: "bgt-filter",
+      type: "search",
+      placeholder,
+      value: _filterState[key] || ""
+    });
+    el.addEventListener("input", (e) => {
+      _filterState[key] = e.target.value;
+      onFilter(e.target.value);
+    });
+    return el;
+  }
+  function applyRowFilter(tbody, text) {
+    const q = text.trim().toLowerCase();
+    tbody.querySelectorAll("tr").forEach((row) => {
+      if (!q) {
+        row.style.display = "";
+        return;
+      }
+      const hit = [...row.querySelectorAll("td")].some((td2) => {
+        if (td2.textContent.trim().toLowerCase().includes(q)) return true;
+        return [...td2.querySelectorAll("input, select")].some(
+          (el) => (el.value || "").toLowerCase().includes(q)
+        );
+      });
+      row.style.display = hit ? "" : "none";
+    });
+  }
   var _selCatId = null;
   var selectedInvoiceIds = /* @__PURE__ */ new Set();
   function clearSelectionIfNeeded(catId) {
@@ -25606,7 +25758,7 @@ ${err.message}`);
       _selCatId = catId;
     }
   }
-  function buildInvoiceTable(catId, invoices, consultants, onSelectionChange, csvBtn) {
+  function buildInvoiceTable(catId, invoices, consultants, onSelectionChange) {
     clearSelectionIfNeeded(catId);
     ensurePartyDatalist(catId, consultants);
     const allIds = invoices.map((i) => i.id);
@@ -25736,9 +25888,46 @@ ${err.message}`);
         h("tbody", null, ...rows)
       )
     ));
-    const actionsRow = h("div", { class: "bgt-actions-row" });
-    actionsRow.appendChild(addBtn);
-    if (csvBtn) actionsRow.appendChild(csvBtn);
+    const invTbody = block.querySelector("tbody");
+    applyRowFilter(invTbody, _filterState[`${catId}:inv`] || "");
+    const deleteSelBtn = h("button", { class: "bgt-danger-btn", title: "Delete selected rows" }, "\u{1F5D1} Delete selected");
+    deleteSelBtn.style.display = selectedInvoiceIds.size > 0 ? "" : "none";
+    deleteSelBtn.addEventListener("click", async () => {
+      const ids = [...selectedInvoiceIds];
+      const n = ids.length;
+      const ok = await showConfirm({ title: `Delete ${n} invoice${n !== 1 ? "s" : ""}?`, lines: [`This will permanently delete ${n} selected row${n !== 1 ? "s" : ""}.`], confirmText: "Delete" });
+      if (ok) {
+        selectedInvoiceIds.clear();
+        deleteBudgetInvoices(catId, ids);
+      }
+    });
+    const clearAllInvBtn = h("button", { class: "bgt-danger-btn", title: "Delete all invoices" }, "\u{1F5D1} Clear all");
+    clearAllInvBtn.addEventListener("click", async () => {
+      const n = invoices.length;
+      if (!n) return;
+      const ok = await showConfirm({ title: "Clear all invoices?", lines: [`This will permanently delete all ${n} invoice row${n !== 1 ? "s" : ""}.`], confirmText: "Delete all" });
+      if (ok) {
+        selectedInvoiceIds.clear();
+        clearBudgetInvoices(catId);
+      }
+    });
+    const origOnSelectionChange = onSelectionChange;
+    onSelectionChange = () => {
+      deleteSelBtn.style.display = selectedInvoiceIds.size > 0 ? "" : "none";
+      origOnSelectionChange?.();
+    };
+    rowChkEls.forEach((chk) => chk.addEventListener("change", () => {
+      deleteSelBtn.style.display = selectedInvoiceIds.size > 0 ? "" : "none";
+    }));
+    headerChk.addEventListener("change", () => {
+      deleteSelBtn.style.display = selectedInvoiceIds.size > 0 ? "" : "none";
+    });
+    const actionsRow = h(
+      "div",
+      { class: "bgt-actions-row" },
+      h("div", { class: "bgt-actions-left" }, addBtn),
+      h("div", { class: "bgt-actions-right" }, deleteSelBtn, clearAllInvBtn)
+    );
     block.appendChild(actionsRow);
     return block;
   }
@@ -25746,15 +25935,29 @@ ${err.message}`);
     const cat = getPanelData().categories.find((c) => c.id === catId);
     const budget = cat?.budget || { consultants: [], invoices: [] };
     const frag = document.createDocumentFragment();
+    const { block: consBlock, csvBtn: consCsvBtn } = buildConsultants(catId, budget.consultants, budget.invoices);
+    const consTbody = consBlock.querySelector("tbody");
+    applyRowFilter(consTbody, _filterState[`${catId}:cons`] || "");
+    const consFilterInput = buildFilterInput(`${catId}:cons`, "Search party, discipline, category\u2026", (q) => {
+      applyRowFilter(consTbody, q);
+    });
+    const consTitle = consBlock.querySelector(".bgt-block-title");
+    if (consTitle) {
+      const titleWrap = h("div", { class: "bgt-title-row" });
+      consTitle.replaceWith(titleWrap);
+      titleWrap.appendChild(h("div", { class: "bgt-block-title" }, "Consultants"));
+      titleWrap.appendChild(consFilterInput);
+    }
     frag.appendChild(h(
       "div",
       { class: "bgt-xlsx-bar" },
-      h("span", { class: "bgt-xlsx-bar-label" }, "Import a multi-sheet spreadsheet to populate both budget and invoices at once:"),
-      buildExcelImportBtn(catId)
+      h("span", { class: "bgt-xlsx-bar-label" }, "Import:"),
+      buildExcelImportBtn(catId),
+      consCsvBtn
     ));
     const pivot = buildPivot(budget.consultants, budget.invoices);
     if (pivot) frag.appendChild(pivot);
-    frag.appendChild(buildConsultants(catId, budget.consultants, budget.invoices));
+    frag.appendChild(consBlock);
     return frag;
   }
   var INVOICE_HEADERS = [
@@ -25854,14 +26057,14 @@ ${err.message}`);
             discipline: match?.discipline || get2(row, "discipline"),
             category: match?.category || get2(row, "category", "cat"),
             subCategory: match?.subCategory || get2(row, "sub-category", "subcategory", "sub category", "sub"),
-            invoiceDate: get2(row, "invoice date", "date"),
+            invoiceDate: cleanDate(get2(row, "invoice date", "date")),
             invoiceNumber: invNum,
-            dueDate: get2(row, "due date"),
+            dueDate: cleanDate(get2(row, "due date")),
             status: get2(row, "status") || "Pending",
-            net: get2(row, "net", "net ", "net amount", "amount", "ex vat", "excl vat"),
-            vat: get2(row, "vat", "vat ", "tax"),
-            accountsDate: get2(row, "accounts date", "accounts"),
-            paidDate: get2(row, "paid date", "paid"),
+            net: cleanNumber(get2(row, "net", "net ", "net amount", "amount", "ex vat", "excl vat")),
+            vat: cleanNumber(get2(row, "vat", "vat ", "tax")),
+            accountsDate: cleanDate(get2(row, "accounts date", "accounts")),
+            paidDate: cleanDate(get2(row, "paid date", "paid")),
             comment: get2(row, "comment", "comments", "notes"),
             consultantId: match?.id || ""
           };
@@ -25882,22 +26085,28 @@ ${err.message}`);
           ]
         };
       },
-      (rows) => rows.forEach((r) => addBudgetInvoice(catId, r))
+      (rows) => rows.forEach((r) => upsertInvoice(catId, r))
     );
     frag.appendChild(h(
       "div",
       { class: "bgt-xlsx-bar" },
-      h("span", { class: "bgt-xlsx-bar-label" }, "Import a multi-sheet spreadsheet to populate both budget and invoices at once:"),
-      buildExcelImportBtn(catId)
+      h("span", { class: "bgt-xlsx-bar-label" }, "Import:"),
+      buildExcelImportBtn(catId),
+      invCsvBtn
     ));
+    const invFilterInput = buildFilterInput(`${catId}:inv`, "Search party, invoice #, status\u2026", (q) => {
+      const tbody = document.querySelector(".bgt-table tbody");
+      if (tbody) applyRowFilter(tbody, q);
+    });
     const titleRow = h(
       "div",
       { class: "bgt-title-row" },
       h("div", { class: "bgt-block-title" }, "Payment Tracker"),
+      invFilterInput,
       copyBtn
     );
     frag.appendChild(titleRow);
-    frag.appendChild(buildInvoiceTable(catId, budget.invoices, budget.consultants, () => copyBtn.refresh(), invCsvBtn));
+    frag.appendChild(buildInvoiceTable(catId, budget.invoices, budget.consultants, () => copyBtn.refresh()));
     return frag;
   }
 
@@ -26057,7 +26266,10 @@ ${err.message}`);
         ...tabs.map(
           (t) => h("button", {
             class: `cat-tab-btn${S.catTab === t ? " active" : ""}`,
-            onClick: () => set({ catTab: t })
+            onClick: () => {
+              set({ catTab: t });
+              saveNav();
+            }
           }, tabLabels[t])
         )
       );

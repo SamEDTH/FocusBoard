@@ -35,6 +35,14 @@ function persistSettings() {
   saveSettings({ theme: S.theme, useSystemTheme: S.useSystemTheme, sidebarCollapsed: S.sidebarCollapsed, workStart: S.workStart, workEnd: S.workEnd, focusBuffer: S.focusBuffer, focusMinBlock: S.focusMinBlock, followUpDays: S.followUpDays });
 }
 
+const NAV_KEY = 'fb_nav';
+export function saveNav() {
+  try { localStorage.setItem(NAV_KEY, JSON.stringify({ panel: S.panel, view: S.view, activeCat: S.activeCat, catTab: S.catTab })); } catch {}
+}
+function loadNav() {
+  try { return JSON.parse(localStorage.getItem(NAV_KEY) || 'null'); } catch { return null; }
+}
+
 export function updateFocusDefaults(buffer, minBlock) {
   S.focusBuffer   = buffer;
   S.focusMinBlock = minBlock;
@@ -68,11 +76,13 @@ function applySystemTheme() {
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
+const _savedNav = loadNav();
+
 export const S = {
   data: loadData(),
-  panel: 'work',
-  view: 'dashboard',
-  activeCat: null,
+  panel: _savedNav?.panel || 'work',
+  view:  _savedNav?.view  || 'dashboard',
+  activeCat: _savedNav?.activeCat || null,
   filter: 'all',
   showAddItem: false,
   showAddCat: false,
@@ -97,7 +107,7 @@ export const S = {
   calWeekStart: null,
   dashFilter: null,   // 'overdue' | 'dueToday' | 'upcoming' | 'chaseDue' | 'awaitingReply' | 'completed' | null
   dashTab: 'all',     // 'all' | 'today' | 'week'
-  catTab: 'tasks',    // 'tasks' | 'bible' | 'budget' | 'invoices'
+  catTab: _savedNav?.catTab || 'tasks',    // 'tasks' | 'bible' | 'budget' | 'invoices'
   focusBuffer:   savedSettings.focusBuffer   ?? 15,
   focusMinBlock: savedSettings.focusMinBlock ?? 30,
   followUpDays:  savedSettings.followUpDays  ?? 5,
@@ -285,18 +295,22 @@ export function getGroupedItems() {
 
 export function switchPanel(panel) {
   set({ panel, view: 'dashboard', activeCat: null, filter: 'all', showAddItem: false, showAddCat: false, dashFilter: null, dashTab: 'all' });
+  saveNav();
 }
 
 export function gotoCategory(id) {
   set({ view: 'category', activeCat: id, filter: 'all', showAddItem: false, showAddCat: false, dashFilter: null, catTab: 'tasks' });
+  saveNav();
 }
 
 export function gotoDashboard() {
   set({ view: 'dashboard', activeCat: null, filter: 'all', showAddItem: false, showAddCat: false, dashFilter: null, dashTab: 'all' });
+  saveNav();
 }
 
 export function gotoWorkload() {
   set({ view: 'workload', activeCat: null, showAddItem: false, showAddCat: false, dashFilter: null });
+  saveNav();
 }
 
 // ── UI toggles ────────────────────────────────────────────────────────────────
@@ -683,6 +697,7 @@ export function enableCategoryFeature(catId, feature) {
   }
   upd(newData);
   set({ catTab: feature });
+  saveNav();
 }
 
 export function addBibleSection(catId) {
