@@ -740,7 +740,7 @@ function buildConsultants(catId, consultants, invoices) {
     const upd    = patch => updateBudgetConsultant(catId, c.id, patch);
     const budget = num(c.quote) * (1 + num(c.contingencyPct) / 100);
     const totals = getConsultantTotals(c.id, invoices);
-    const balance = num(c.quote) - totals.invoiced;
+    const balance = budget - totals.invoiced;  // budget already includes contingency
 
     const hasActivity = num(c.quote) > 0 || totals.invoiced > 0;
     let balanceCls = balance < 0 ? 'bgt-over' : '';
