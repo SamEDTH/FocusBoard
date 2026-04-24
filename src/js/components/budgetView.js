@@ -142,7 +142,8 @@ function cleanDate(val) {
 /** Looks up a field in a CSV row object by one or more candidate key strings (partial, case-insensitive). */
 function get(row, ...candidates) {
   for (const c of candidates) {
-    const k = Object.keys(row).find(k => k === c || k.includes(c));
+    const cLow = c.toLowerCase();
+    const k = Object.keys(row).find(k => { const kLow = k.toLowerCase(); return kLow === cLow || kLow.includes(cLow); });
     if (k !== undefined && row[k] !== undefined) return row[k];
   }
   return '';

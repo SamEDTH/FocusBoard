@@ -24999,7 +24999,11 @@ ${suffix}`;
   }
   function get2(row, ...candidates) {
     for (const c of candidates) {
-      const k = Object.keys(row).find((k2) => k2 === c || k2.includes(c));
+      const cLow = c.toLowerCase();
+      const k = Object.keys(row).find((k2) => {
+        const kLow = k2.toLowerCase();
+        return kLow === cLow || kLow.includes(cLow);
+      });
       if (k !== void 0 && row[k] !== void 0) return row[k];
     }
     return "";
