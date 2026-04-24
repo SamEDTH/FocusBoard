@@ -331,8 +331,9 @@ async function parseXLSXFile(file) {
 
   return wb.SheetNames.map(sheetName => {
     const ws      = wb.Sheets[sheetName];
-    // raw: false → numbers/dates are formatted as strings; dateNF ensures YYYY-MM-DD for dates
-    const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false, dateNF: 'yyyy-mm-dd' });
+    // raw: true  → numbers come back as plain JS numbers (avoids £1,234 formatted strings)
+    // cellDates: true → date cells come back as JS Date objects
+    const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
 
     let type   = null;
     let hdrIdx = -1;
@@ -347,7 +348,15 @@ async function parseXLSXFile(file) {
         .filter(r => r.some(c => c !== '' && c != null))
         .map(r => {
           const obj = {};
-          hdrs.forEach((h, i) => { obj[h] = String(r[i] ?? '').trim(); });
+          hdrs.forEach((h, i) => {
+            const v = r[i];
+            // Date objects → ISO string; everything else → plain string
+            if (v instanceof Date) {
+              obj[h] = `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+            } else {
+              obj[h] = String(v ?? '').trim();
+            }
+          });
           return obj;
         });
     }
