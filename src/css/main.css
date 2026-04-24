@@ -1405,7 +1405,13 @@ body.light .wft-cl-badge.all-done { color: #1a6e49; background: #e6faf2; border-
   color: var(--text3); text-transform: uppercase; letter-spacing: 0.04em;
   border-bottom: 2px solid var(--border2); white-space: nowrap;
 }
-.bgt-table td { padding: 1px 2px; border-bottom: 1px solid var(--border); }
+.bgt-table td { padding: 1px 2px; border-bottom: 1px solid var(--border); transition: background 0.05s; }
+.bgt-table tbody tr:hover td { background: rgba(56,189,248,0.07); }
+.bgt-table td.bgt-col-hover  { background: rgba(56,189,248,0.07); }
+.bgt-table tbody tr:hover td.bgt-col-hover { background: rgba(56,189,248,0.16); }
+body.light .bgt-table tbody tr:hover td { background: rgba(2,132,199,0.07); }
+body.light .bgt-table td.bgt-col-hover  { background: rgba(2,132,199,0.07); }
+body.light .bgt-table tbody tr:hover td.bgt-col-hover { background: rgba(2,132,199,0.16); }
 .bgt-r { text-align: right !important; font-variant-numeric: tabular-nums; }
 .bgt-calc { display: block; padding: 6px 8px; color: var(--text2); font-size: 13px; }
 .bgt-over { color: var(--error) !important; }

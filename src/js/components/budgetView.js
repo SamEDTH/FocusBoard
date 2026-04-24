@@ -3,6 +3,26 @@ import { h } from '../dom.js';
 import { showConfirm } from './confirm.js';
 
 const num = v => parseFloat(v) || 0;
+
+/** Highlight the hovered column across all rows via event delegation on a table element. */
+function addColHighlight(table) {
+  let lastCol = -1;
+  table.addEventListener('mouseover', e => {
+    const td = e.target.closest('td');
+    if (!td) return;
+    const col = td.cellIndex;
+    if (col === lastCol) return;
+    // Clear previous column
+    if (lastCol >= 0) table.querySelectorAll(`td:nth-child(${lastCol + 1})`).forEach(c => c.classList.remove('bgt-col-hover'));
+    // Highlight new column
+    table.querySelectorAll(`td:nth-child(${col + 1})`).forEach(c => c.classList.add('bgt-col-hover'));
+    lastCol = col;
+  });
+  table.addEventListener('mouseleave', () => {
+    if (lastCol >= 0) table.querySelectorAll(`td:nth-child(${lastCol + 1})`).forEach(c => c.classList.remove('bgt-col-hover'));
+    lastCol = -1;
+  });
+}
 const fmt = v => {
   const n = num(v);
   return n === 0 ? '—' : '£' + n.toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -11,6 +31,7 @@ const fmt = v => {
 function inp(val, placeholder, onChange, type = 'text') {
   const el = h('input', { class: 'bgt-inp', value: val ?? '', placeholder, type });
   el.addEventListener('change', e => onChange(e.target.value));
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); el.blur(); } });
   if (type === 'number') {
     el.style.textAlign = 'right';
     el.type = 'text';           // use text to suppress spinners; keep numeric feel
@@ -948,32 +969,33 @@ function buildConsultants(catId, consultants, invoices) {
     rows => rows.forEach(r => upsertConsultant(catId, r)),
   );
 
+  const consTable = h('table', { class: 'bgt-table' },
+    h('thead', null, h('tr', null,
+      h('th', null, 'Party'),
+      h('th', null, 'Company'),
+      h('th', null, 'Contact'),
+      h('th', null, 'Appointed'),
+      h('th', null, 'Discipline'),
+      h('th', null, 'Category'),
+      h('th', null, 'Sub-Category'),
+      h('th', { class: 'bgt-r' }, 'Quote £'),
+      h('th', { class: 'bgt-r' }, 'Cont %'),
+      h('th', { class: 'bgt-r bgt-auto-hdr' }, 'Budget £'),
+      h('th', { class: 'bgt-r bgt-auto-hdr' }, 'Accounts £'),
+      h('th', { class: 'bgt-r bgt-auto-hdr' }, 'Paid £'),
+      h('th', { class: 'bgt-r bgt-auto-hdr' }, 'Invoiced £'),
+      h('th', { class: 'bgt-r bgt-auto-hdr' }, 'Balance £'),
+      h('th', { class: 'bgt-done-hdr', title: 'Tick when invoicing is complete — balance turns green' }, 'Done?'),
+      h('th', null, 'Comments'),
+      h('th', null, ''),
+    )),
+    h('tbody', null, ...rows),
+  );
+  addColHighlight(consTable);
+
   const block = h('div', { class: 'bgt-block' });
   block.appendChild(h('div', { class: 'bgt-block-title' }, 'Consultants'));
-  block.appendChild(h('div', { class: 'bgt-scroll' },
-    h('table', { class: 'bgt-table' },
-      h('thead', null, h('tr', null,
-        h('th', null, 'Party'),
-        h('th', null, 'Company'),
-        h('th', null, 'Contact'),
-        h('th', null, 'Appointed'),
-        h('th', null, 'Discipline'),
-        h('th', null, 'Category'),
-        h('th', null, 'Sub-Category'),
-        h('th', { class: 'bgt-r' }, 'Quote £'),
-        h('th', { class: 'bgt-r' }, 'Cont %'),
-        h('th', { class: 'bgt-r bgt-auto-hdr' }, 'Budget £'),
-        h('th', { class: 'bgt-r bgt-auto-hdr' }, 'Accounts £'),
-        h('th', { class: 'bgt-r bgt-auto-hdr' }, 'Paid £'),
-        h('th', { class: 'bgt-r bgt-auto-hdr' }, 'Invoiced £'),
-        h('th', { class: 'bgt-r bgt-auto-hdr' }, 'Balance £'),
-        h('th', { class: 'bgt-done-hdr', title: 'Tick when invoicing is complete — balance turns green' }, 'Done?'),
-        h('th', null, 'Comments'),
-        h('th', null, ''),
-      )),
-      h('tbody', null, ...rows),
-    ),
-  ));
+  block.appendChild(h('div', { class: 'bgt-scroll' }, consTable));
   const clearAllConsBtn = h('button', { class: 'bgt-danger-btn', title: 'Delete all consultants' }, '🗑 Clear all');
   clearAllConsBtn.addEventListener('click', async () => {
     const n = consultants.length;
@@ -1177,35 +1199,36 @@ function buildInvoiceTable(catId, invoices, consultants, onSelectionChange) {
     }),
   );
 
+  const invTable = h('table', { class: 'bgt-table' },
+    h('thead', null, h('tr', null,
+      h('th', { class: 'bgt-sel-hdr' }, headerChk),
+      h('th', null, 'Party'),
+      h('th', null, 'Company'),
+      h('th', { class: 'bgt-auto-hdr', title: 'Pre-filled from Project Bible' }, 'Project ↗'),
+      h('th', { class: 'bgt-auto-hdr', title: 'Pre-filled from Project Bible' }, 'DM ↗'),
+      h('th', { class: 'bgt-auto-hdr', title: 'Pre-filled from Project Bible' }, 'SPV Name ↗'),
+      h('th', null, 'Doc Type'),
+      h('th', null, 'Discipline'),
+      h('th', null, 'Category'),
+      h('th', null, 'Sub-Category'),
+      h('th', null, 'Invoice Date'),
+      h('th', null, 'Invoice #'),
+      h('th', null, 'Due Date'),
+      h('th', null, 'Status'),
+      h('th', { class: 'bgt-r' }, 'Net £'),
+      h('th', { class: 'bgt-r' }, 'VAT £'),
+      h('th', { class: 'bgt-r' }, 'Total £'),
+      h('th', null, 'Accounts Date'),
+      h('th', null, 'Paid Date'),
+      h('th', null, 'Comment'),
+      h('th', null, ''),
+    )),
+    h('tbody', null, ...rows),
+  );
+  addColHighlight(invTable);
+
   const block = h('div', { class: 'bgt-block' });
-  block.appendChild(h('div', { class: 'bgt-scroll' },
-    h('table', { class: 'bgt-table' },
-      h('thead', null, h('tr', null,
-        h('th', { class: 'bgt-sel-hdr' }, headerChk),
-        h('th', null, 'Party'),
-        h('th', null, 'Company'),
-        h('th', { class: 'bgt-auto-hdr', title: 'Pre-filled from Project Bible' }, 'Project ↗'),
-        h('th', { class: 'bgt-auto-hdr', title: 'Pre-filled from Project Bible' }, 'DM ↗'),
-        h('th', { class: 'bgt-auto-hdr', title: 'Pre-filled from Project Bible' }, 'SPV Name ↗'),
-        h('th', null, 'Doc Type'),
-        h('th', null, 'Discipline'),
-        h('th', null, 'Category'),
-        h('th', null, 'Sub-Category'),
-        h('th', null, 'Invoice Date'),
-        h('th', null, 'Invoice #'),
-        h('th', null, 'Due Date'),
-        h('th', null, 'Status'),
-        h('th', { class: 'bgt-r' }, 'Net £'),
-        h('th', { class: 'bgt-r' }, 'VAT £'),
-        h('th', { class: 'bgt-r' }, 'Total £'),
-        h('th', null, 'Accounts Date'),
-        h('th', null, 'Paid Date'),
-        h('th', null, 'Comment'),
-        h('th', null, ''),
-      )),
-      h('tbody', null, ...rows),
-    ),
-  ));
+  block.appendChild(h('div', { class: 'bgt-scroll' }, invTable));
 
   // Apply any active filter immediately after building
   const invTbody = block.querySelector('tbody');

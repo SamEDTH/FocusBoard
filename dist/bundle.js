@@ -24889,6 +24889,22 @@ ${suffix}`;
 
   // src/js/components/budgetView.js
   var num = (v) => parseFloat(v) || 0;
+  function addColHighlight(table) {
+    let lastCol = -1;
+    table.addEventListener("mouseover", (e) => {
+      const td2 = e.target.closest("td");
+      if (!td2) return;
+      const col = td2.cellIndex;
+      if (col === lastCol) return;
+      if (lastCol >= 0) table.querySelectorAll(`td:nth-child(${lastCol + 1})`).forEach((c) => c.classList.remove("bgt-col-hover"));
+      table.querySelectorAll(`td:nth-child(${col + 1})`).forEach((c) => c.classList.add("bgt-col-hover"));
+      lastCol = col;
+    });
+    table.addEventListener("mouseleave", () => {
+      if (lastCol >= 0) table.querySelectorAll(`td:nth-child(${lastCol + 1})`).forEach((c) => c.classList.remove("bgt-col-hover"));
+      lastCol = -1;
+    });
+  }
   var fmt3 = (v) => {
     const n = num(v);
     return n === 0 ? "\u2014" : "\xA3" + n.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -24896,6 +24912,12 @@ ${suffix}`;
   function inp(val, placeholder, onChange, type = "text") {
     const el = h("input", { class: "bgt-inp", value: val ?? "", placeholder, type });
     el.addEventListener("change", (e) => onChange(e.target.value));
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        el.blur();
+      }
+    });
     if (type === "number") {
       el.style.textAlign = "right";
       el.type = "text";
@@ -25722,38 +25744,36 @@ ${err.message}`);
       }),
       (rows2) => rows2.forEach((r) => upsertConsultant(catId, r))
     );
+    const consTable = h(
+      "table",
+      { class: "bgt-table" },
+      h("thead", null, h(
+        "tr",
+        null,
+        h("th", null, "Party"),
+        h("th", null, "Company"),
+        h("th", null, "Contact"),
+        h("th", null, "Appointed"),
+        h("th", null, "Discipline"),
+        h("th", null, "Category"),
+        h("th", null, "Sub-Category"),
+        h("th", { class: "bgt-r" }, "Quote \xA3"),
+        h("th", { class: "bgt-r" }, "Cont %"),
+        h("th", { class: "bgt-r bgt-auto-hdr" }, "Budget \xA3"),
+        h("th", { class: "bgt-r bgt-auto-hdr" }, "Accounts \xA3"),
+        h("th", { class: "bgt-r bgt-auto-hdr" }, "Paid \xA3"),
+        h("th", { class: "bgt-r bgt-auto-hdr" }, "Invoiced \xA3"),
+        h("th", { class: "bgt-r bgt-auto-hdr" }, "Balance \xA3"),
+        h("th", { class: "bgt-done-hdr", title: "Tick when invoicing is complete \u2014 balance turns green" }, "Done?"),
+        h("th", null, "Comments"),
+        h("th", null, "")
+      )),
+      h("tbody", null, ...rows)
+    );
+    addColHighlight(consTable);
     const block = h("div", { class: "bgt-block" });
     block.appendChild(h("div", { class: "bgt-block-title" }, "Consultants"));
-    block.appendChild(h(
-      "div",
-      { class: "bgt-scroll" },
-      h(
-        "table",
-        { class: "bgt-table" },
-        h("thead", null, h(
-          "tr",
-          null,
-          h("th", null, "Party"),
-          h("th", null, "Company"),
-          h("th", null, "Contact"),
-          h("th", null, "Appointed"),
-          h("th", null, "Discipline"),
-          h("th", null, "Category"),
-          h("th", null, "Sub-Category"),
-          h("th", { class: "bgt-r" }, "Quote \xA3"),
-          h("th", { class: "bgt-r" }, "Cont %"),
-          h("th", { class: "bgt-r bgt-auto-hdr" }, "Budget \xA3"),
-          h("th", { class: "bgt-r bgt-auto-hdr" }, "Accounts \xA3"),
-          h("th", { class: "bgt-r bgt-auto-hdr" }, "Paid \xA3"),
-          h("th", { class: "bgt-r bgt-auto-hdr" }, "Invoiced \xA3"),
-          h("th", { class: "bgt-r bgt-auto-hdr" }, "Balance \xA3"),
-          h("th", { class: "bgt-done-hdr", title: "Tick when invoicing is complete \u2014 balance turns green" }, "Done?"),
-          h("th", null, "Comments"),
-          h("th", null, "")
-        )),
-        h("tbody", null, ...rows)
-      )
-    ));
+    block.appendChild(h("div", { class: "bgt-scroll" }, consTable));
     const clearAllConsBtn = h("button", { class: "bgt-danger-btn", title: "Delete all consultants" }, "\u{1F5D1} Clear all");
     clearAllConsBtn.addEventListener("click", async () => {
       const n = consultants.length;
@@ -25953,41 +25973,39 @@ ${err.message}`);
         consultantId: ""
       })
     );
+    const invTable = h(
+      "table",
+      { class: "bgt-table" },
+      h("thead", null, h(
+        "tr",
+        null,
+        h("th", { class: "bgt-sel-hdr" }, headerChk),
+        h("th", null, "Party"),
+        h("th", null, "Company"),
+        h("th", { class: "bgt-auto-hdr", title: "Pre-filled from Project Bible" }, "Project \u2197"),
+        h("th", { class: "bgt-auto-hdr", title: "Pre-filled from Project Bible" }, "DM \u2197"),
+        h("th", { class: "bgt-auto-hdr", title: "Pre-filled from Project Bible" }, "SPV Name \u2197"),
+        h("th", null, "Doc Type"),
+        h("th", null, "Discipline"),
+        h("th", null, "Category"),
+        h("th", null, "Sub-Category"),
+        h("th", null, "Invoice Date"),
+        h("th", null, "Invoice #"),
+        h("th", null, "Due Date"),
+        h("th", null, "Status"),
+        h("th", { class: "bgt-r" }, "Net \xA3"),
+        h("th", { class: "bgt-r" }, "VAT \xA3"),
+        h("th", { class: "bgt-r" }, "Total \xA3"),
+        h("th", null, "Accounts Date"),
+        h("th", null, "Paid Date"),
+        h("th", null, "Comment"),
+        h("th", null, "")
+      )),
+      h("tbody", null, ...rows)
+    );
+    addColHighlight(invTable);
     const block = h("div", { class: "bgt-block" });
-    block.appendChild(h(
-      "div",
-      { class: "bgt-scroll" },
-      h(
-        "table",
-        { class: "bgt-table" },
-        h("thead", null, h(
-          "tr",
-          null,
-          h("th", { class: "bgt-sel-hdr" }, headerChk),
-          h("th", null, "Party"),
-          h("th", null, "Company"),
-          h("th", { class: "bgt-auto-hdr", title: "Pre-filled from Project Bible" }, "Project \u2197"),
-          h("th", { class: "bgt-auto-hdr", title: "Pre-filled from Project Bible" }, "DM \u2197"),
-          h("th", { class: "bgt-auto-hdr", title: "Pre-filled from Project Bible" }, "SPV Name \u2197"),
-          h("th", null, "Doc Type"),
-          h("th", null, "Discipline"),
-          h("th", null, "Category"),
-          h("th", null, "Sub-Category"),
-          h("th", null, "Invoice Date"),
-          h("th", null, "Invoice #"),
-          h("th", null, "Due Date"),
-          h("th", null, "Status"),
-          h("th", { class: "bgt-r" }, "Net \xA3"),
-          h("th", { class: "bgt-r" }, "VAT \xA3"),
-          h("th", { class: "bgt-r" }, "Total \xA3"),
-          h("th", null, "Accounts Date"),
-          h("th", null, "Paid Date"),
-          h("th", null, "Comment"),
-          h("th", null, "")
-        )),
-        h("tbody", null, ...rows)
-      )
-    ));
+    block.appendChild(h("div", { class: "bgt-scroll" }, invTable));
     const invTbody = block.querySelector("tbody");
     applyRowFilter(invTbody, _filterState[`${catId}:inv`] || "");
     const deleteSelBtn = h("button", { class: "bgt-danger-btn", title: "Delete selected rows" }, "\u{1F5D1} Delete selected");
