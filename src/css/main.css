@@ -1446,8 +1446,8 @@ body.light .bgt-inp[type="date"] { color-scheme: light; }
 }
 .bgt-add-btn:hover { color: var(--primary); }
 .bgt-danger-btn {
-  margin-top: 6px; background: transparent; border: none; color: var(--text4);
-  font-size: 12px; padding: 5px 0; cursor: pointer; margin-left: 12px;
+  background: transparent; border: none; color: var(--text4);
+  font-size: 12px; padding: 5px 4px; cursor: pointer;
 }
 .bgt-danger-btn:hover { color: #e53e3e; }
 .bgt-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
@@ -1460,7 +1460,9 @@ body.light .bgt-inp[type="date"] { color-scheme: light; }
 .bgt-copy-btn:hover { background: var(--hover); color: var(--text); }
 .bgt-copy-ok  { color: #2a8a4a !important; border-color: #2a8a4a !important; }
 .bgt-title-actions { display: flex; align-items: center; gap: 6px; }
-.bgt-actions-row   { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.bgt-actions-row   { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
+.bgt-actions-left  { display: flex; align-items: center; gap: 8px; }
+.bgt-actions-right { display: flex; align-items: center; gap: 4px; }
 .bgt-csv-btn {
   font-size: 12px; padding: 4px 10px; border-radius: 5px; cursor: pointer;
   background: transparent; border: 1px solid var(--border2); color: var(--text2);
@@ -1525,7 +1527,8 @@ body.light .bgt-inp[type="date"] { color-scheme: light; }
 
 /* ── Excel import bar ────────────────────────────────────────────────────── */
 .bgt-xlsx-bar        { display: flex; align-items: center; gap: 10px; padding: 8px 0 14px; border-bottom: 1px solid var(--border1); margin-bottom: 18px; }
-.bgt-xlsx-bar-label  { font-size: 12px; color: var(--text4); flex: 1; }
+.bgt-xlsx-bar-label  { font-size: 12px; color: var(--text4); }
+.bgt-xlsx-bar .bgt-csv-btn { font-size: 12px; padding: 5px 12px; }
 .bgt-xlsx-btn        { font-size: 12px; padding: 5px 12px; border-radius: 5px; cursor: pointer; white-space: nowrap;
   background: var(--primary); color: #fff; border: none; font-weight: 500; }
 .bgt-xlsx-btn:hover  { opacity: 0.88; }

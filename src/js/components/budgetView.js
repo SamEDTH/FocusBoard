@@ -778,7 +778,8 @@ function buildConsultants(catId, consultants, invoices) {
     }),
   );
 
-  const csvBtn = buildCSVUploadBtn(
+  // CSV button is rendered in the import bar above the table, not in the actions row
+  const consCsvBtn = buildCSVUploadBtn(
     'consultants',
     rawRows => ({
       rows: rawRows
@@ -846,12 +847,12 @@ function buildConsultants(catId, consultants, invoices) {
     if (ok) clearBudgetConsultants(catId);
   });
 
-  const actionsRow = h('div', { class: 'bgt-actions-row' });
-  actionsRow.appendChild(addBtn);
-  actionsRow.appendChild(csvBtn);
-  actionsRow.appendChild(clearAllConsBtn);
+  const actionsRow = h('div', { class: 'bgt-actions-row' },
+    h('div', { class: 'bgt-actions-left' }, addBtn),
+    h('div', { class: 'bgt-actions-right' }, clearAllConsBtn),
+  );
   block.appendChild(actionsRow);
-  return block;
+  return { block, csvBtn: consCsvBtn };
 }
 
 // ── Invoice tracker ───────────────────────────────────────────────────────────
@@ -916,7 +917,7 @@ function clearSelectionIfNeeded(catId) {
   if (_selCatId !== catId) { selectedInvoiceIds.clear(); _selCatId = catId; }
 }
 
-function buildInvoiceTable(catId, invoices, consultants, onSelectionChange, csvBtn) {
+function buildInvoiceTable(catId, invoices, consultants, onSelectionChange) {
   clearSelectionIfNeeded(catId);
   ensurePartyDatalist(catId, consultants);
 
@@ -1068,11 +1069,10 @@ function buildInvoiceTable(catId, invoices, consultants, onSelectionChange, csvB
     deleteSelBtn.style.display = selectedInvoiceIds.size > 0 ? '' : 'none';
   });
 
-  const actionsRow = h('div', { class: 'bgt-actions-row' });
-  actionsRow.appendChild(addBtn);
-  if (csvBtn) actionsRow.appendChild(csvBtn);
-  actionsRow.appendChild(deleteSelBtn);
-  actionsRow.appendChild(clearAllInvBtn);
+  const actionsRow = h('div', { class: 'bgt-actions-row' },
+    h('div', { class: 'bgt-actions-left' }, addBtn),
+    h('div', { class: 'bgt-actions-right' }, deleteSelBtn, clearAllInvBtn),
+  );
   block.appendChild(actionsRow);
   return block;
 }
@@ -1083,13 +1083,15 @@ export function buildBudgetView(catId) {
   const cat    = getPanelData().categories.find(c => c.id === catId);
   const budget = cat?.budget || { consultants: [], invoices: [] };
   const frag   = document.createDocumentFragment();
+  const { block: consBlock, csvBtn: consCsvBtn } = buildConsultants(catId, budget.consultants, budget.invoices);
   frag.appendChild(h('div', { class: 'bgt-xlsx-bar' },
-    h('span', { class: 'bgt-xlsx-bar-label' }, 'Import a multi-sheet spreadsheet to populate both budget and invoices at once:'),
+    h('span', { class: 'bgt-xlsx-bar-label' }, 'Import:'),
     buildExcelImportBtn(catId),
+    consCsvBtn,
   ));
   const pivot = buildPivot(budget.consultants, budget.invoices);
   if (pivot) frag.appendChild(pivot);
-  frag.appendChild(buildConsultants(catId, budget.consultants, budget.invoices));
+  frag.appendChild(consBlock);
   return frag;
 }
 
@@ -1216,14 +1218,15 @@ export function buildInvoicesView(catId) {
   );
 
   frag.appendChild(h('div', { class: 'bgt-xlsx-bar' },
-    h('span', { class: 'bgt-xlsx-bar-label' }, 'Import a multi-sheet spreadsheet to populate both budget and invoices at once:'),
+    h('span', { class: 'bgt-xlsx-bar-label' }, 'Import:'),
     buildExcelImportBtn(catId),
+    invCsvBtn,
   ));
   const titleRow = h('div', { class: 'bgt-title-row' },
     h('div', { class: 'bgt-block-title' }, 'Payment Tracker'),
     copyBtn,
   );
   frag.appendChild(titleRow);
-  frag.appendChild(buildInvoiceTable(catId, budget.invoices, budget.consultants, () => copyBtn.refresh(), invCsvBtn));
+  frag.appendChild(buildInvoiceTable(catId, budget.invoices, budget.consultants, () => copyBtn.refresh()));
   return frag;
 }
