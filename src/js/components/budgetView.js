@@ -930,9 +930,13 @@ function applyRowFilter(tbody, text) {
   const q = text.trim().toLowerCase();
   tbody.querySelectorAll('tr').forEach(row => {
     if (!q) { row.style.display = ''; return; }
-    const hit = [...row.querySelectorAll('td')].some(td =>
-      td.textContent.toLowerCase().includes(q)
-    );
+    // Cells may contain plain text, <input> values, or <select> values
+    const hit = [...row.querySelectorAll('td')].some(td => {
+      if (td.textContent.trim().toLowerCase().includes(q)) return true;
+      return [...td.querySelectorAll('input, select')].some(el =>
+        (el.value || '').toLowerCase().includes(q)
+      );
+    });
     row.style.display = hit ? '' : 'none';
   });
 }
