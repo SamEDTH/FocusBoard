@@ -528,9 +528,10 @@ function showXLSXPreview(catId, sheets, filename) {
   importBtn.addEventListener('click', () => {
     const conSheets = sheets.filter(s => s.type === 'consultants' && include.get(s.name));
     const invSheets = sheets.filter(s => s.type === 'invoices'    && include.get(s.name));
-    conSheets.forEach(s => s.objects.map(mapToConsultant).filter(r => r.party).forEach(r => addBudgetConsultant(catId, r)));
+    // Consultants first so invoice consultant-ID linking resolves
+    conSheets.forEach(s => s.objects.map(mapToConsultant).filter(r => r.party).forEach(r => upsertConsultant(catId, r)));
     // Re-map invoices AFTER consultants are in the store so consultant IDs resolve
-    invSheets.forEach(s => s.objects.map(r => mapToInvoice(r, catId)).filter(r => r.party || r.invoiceNumber).forEach(r => addBudgetInvoice(catId, r)));
+    invSheets.forEach(s => s.objects.map(r => mapToInvoice(r, catId)).filter(r => r.party || r.invoiceNumber).forEach(r => upsertInvoice(catId, r)));
     close();
   });
 
@@ -594,6 +595,45 @@ function buildExcelImportBtn(catId) {
     fi.click();
   });
   return btn;
+}
+
+// ── Upsert helpers (match existing rows before adding) ────────────────────────
+
+/**
+ * Update an existing consultant (matched by party name) or add a new one.
+ * Returns 'updated' | 'added'.
+ */
+function upsertConsultant(catId, data) {
+  const existing = getPanelData().categories.find(c => c.id === catId)?.budget?.consultants || [];
+  const match = data.party
+    ? existing.find(c => c.party && c.party.toLowerCase() === data.party.toLowerCase())
+    : null;
+  if (match) { updateBudgetConsultant(catId, match.id, data); return 'updated'; }
+  addBudgetConsultant(catId, data);
+  return 'added';
+}
+
+/**
+ * Update an existing invoice or add a new one.
+ * Match priority: invoice number → party + date + net.
+ * Returns 'updated' | 'added'.
+ */
+function upsertInvoice(catId, data) {
+  const existing = getPanelData().categories.find(c => c.id === catId)?.budget?.invoices || [];
+  let match = null;
+  if (data.invoiceNumber) {
+    match = existing.find(i => i.invoiceNumber && i.invoiceNumber === data.invoiceNumber);
+  }
+  if (!match && data.party && data.invoiceDate && data.net) {
+    match = existing.find(i =>
+      i.party?.toLowerCase() === data.party?.toLowerCase() &&
+      i.invoiceDate === data.invoiceDate &&
+      i.net === data.net,
+    );
+  }
+  if (match) { updateBudgetInvoice(catId, match.id, data); return 'updated'; }
+  addBudgetInvoice(catId, data);
+  return 'added';
 }
 
 // ── Totals per consultant derived from invoices ───────────────────────────────
@@ -740,7 +780,7 @@ function buildConsultants(catId, consultants, invoices) {
         { label: 'Comments',    key: 'comments' },
       ],
     }),
-    rows => rows.forEach(r => addBudgetConsultant(catId, r)),
+    rows => rows.forEach(r => upsertConsultant(catId, r)),
   );
 
   const block = h('div', { class: 'bgt-block' });
@@ -1102,7 +1142,7 @@ export function buildInvoicesView(catId) {
         ],
       };
     },
-    rows => rows.forEach(r => addBudgetInvoice(catId, r)),
+    rows => rows.forEach(r => upsertInvoice(catId, r)),
   );
 
   frag.appendChild(h('div', { class: 'bgt-xlsx-bar' },
