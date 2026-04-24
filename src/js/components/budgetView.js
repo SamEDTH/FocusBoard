@@ -1,5 +1,6 @@
-import { getPanelData, addBudgetConsultant, updateBudgetConsultant, deleteBudgetConsultant, addBudgetInvoice, updateBudgetInvoice, deleteBudgetInvoice } from '../store.js';
+import { getPanelData, addBudgetConsultant, updateBudgetConsultant, deleteBudgetConsultant, clearBudgetConsultants, addBudgetInvoice, updateBudgetInvoice, deleteBudgetInvoice, deleteBudgetInvoices, clearBudgetInvoices } from '../store.js';
 import { h } from '../dom.js';
+import { showConfirm } from './confirm.js';
 
 const num = v => parseFloat(v) || 0;
 const fmt = v => {
@@ -837,9 +838,18 @@ function buildConsultants(catId, consultants, invoices) {
       h('tbody', null, ...rows),
     ),
   ));
+  const clearAllConsBtn = h('button', { class: 'bgt-danger-btn', title: 'Delete all consultants' }, '🗑 Clear all');
+  clearAllConsBtn.addEventListener('click', async () => {
+    const n = consultants.length;
+    if (!n) return;
+    const ok = await showConfirm({ title: 'Clear all consultants?', lines: [`This will permanently delete all ${n} consultant row${n !== 1 ? 's' : ''}.`], confirmText: 'Delete all' });
+    if (ok) clearBudgetConsultants(catId);
+  });
+
   const actionsRow = h('div', { class: 'bgt-actions-row' });
   actionsRow.appendChild(addBtn);
   actionsRow.appendChild(csvBtn);
+  actionsRow.appendChild(clearAllConsBtn);
   block.appendChild(actionsRow);
   return block;
 }
@@ -1028,9 +1038,41 @@ function buildInvoiceTable(catId, invoices, consultants, onSelectionChange, csvB
       h('tbody', null, ...rows),
     ),
   ));
+  const deleteSelBtn = h('button', { class: 'bgt-danger-btn', title: 'Delete selected rows' }, '🗑 Delete selected');
+  deleteSelBtn.style.display = selectedInvoiceIds.size > 0 ? '' : 'none';
+  deleteSelBtn.addEventListener('click', async () => {
+    const ids = [...selectedInvoiceIds];
+    const n   = ids.length;
+    const ok  = await showConfirm({ title: `Delete ${n} invoice${n !== 1 ? 's' : ''}?`, lines: [`This will permanently delete ${n} selected row${n !== 1 ? 's' : ''}.`], confirmText: 'Delete' });
+    if (ok) { selectedInvoiceIds.clear(); deleteBudgetInvoices(catId, ids); }
+  });
+
+  const clearAllInvBtn = h('button', { class: 'bgt-danger-btn', title: 'Delete all invoices' }, '🗑 Clear all');
+  clearAllInvBtn.addEventListener('click', async () => {
+    const n = invoices.length;
+    if (!n) return;
+    const ok = await showConfirm({ title: 'Clear all invoices?', lines: [`This will permanently delete all ${n} invoice row${n !== 1 ? 's' : ''}.`], confirmText: 'Delete all' });
+    if (ok) { selectedInvoiceIds.clear(); clearBudgetInvoices(catId); }
+  });
+
+  // Show/hide delete-selected whenever selection changes
+  const origOnSelectionChange = onSelectionChange;
+  onSelectionChange = () => {
+    deleteSelBtn.style.display = selectedInvoiceIds.size > 0 ? '' : 'none';
+    origOnSelectionChange?.();
+  };
+  rowChkEls.forEach(chk => chk.addEventListener('change', () => {
+    deleteSelBtn.style.display = selectedInvoiceIds.size > 0 ? '' : 'none';
+  }));
+  headerChk.addEventListener('change', () => {
+    deleteSelBtn.style.display = selectedInvoiceIds.size > 0 ? '' : 'none';
+  });
+
   const actionsRow = h('div', { class: 'bgt-actions-row' });
   actionsRow.appendChild(addBtn);
   if (csvBtn) actionsRow.appendChild(csvBtn);
+  actionsRow.appendChild(deleteSelBtn);
+  actionsRow.appendChild(clearAllInvBtn);
   block.appendChild(actionsRow);
   return block;
 }

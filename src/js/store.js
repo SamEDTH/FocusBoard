@@ -813,6 +813,14 @@ export function deleteBudgetConsultant(catId, consultantId) {
   upd(newData);
 }
 
+export function clearBudgetConsultants(catId) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.budget) return;
+  cat.budget.consultants = [];
+  upd(newData);
+}
+
 export function addBudgetInvoice(catId, data) {
   const newData = JSON.parse(JSON.stringify(S.data));
   const cat = newData[S.panel].categories.find(c => c.id === catId);
@@ -835,5 +843,22 @@ export function deleteBudgetInvoice(catId, invoiceId) {
   const cat = newData[S.panel].categories.find(c => c.id === catId);
   if (!cat?.budget) return;
   cat.budget.invoices = cat.budget.invoices.filter(i => i.id !== invoiceId);
+  upd(newData);
+}
+
+export function deleteBudgetInvoices(catId, ids) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.budget) return;
+  const set = new Set(ids);
+  cat.budget.invoices = cat.budget.invoices.filter(i => !set.has(i.id));
+  upd(newData);
+}
+
+export function clearBudgetInvoices(catId) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.budget) return;
+  cat.budget.invoices = [];
   upd(newData);
 }

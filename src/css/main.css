@@ -1445,6 +1445,11 @@ body.light .bgt-inp[type="date"] { color-scheme: light; }
   font-size: 12px; padding: 5px 0; cursor: pointer;
 }
 .bgt-add-btn:hover { color: var(--primary); }
+.bgt-danger-btn {
+  margin-top: 6px; background: transparent; border: none; color: var(--text4);
+  font-size: 12px; padding: 5px 0; cursor: pointer; margin-left: 12px;
+}
+.bgt-danger-btn:hover { color: #e53e3e; }
 .bgt-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
 .bgt-title-row .bgt-block-title { margin-bottom: 0; }
 .bgt-copy-btn {
