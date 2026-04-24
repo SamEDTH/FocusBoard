@@ -339,28 +339,16 @@ async function parseXLSXFile(file) {
     const ws = wb.Sheets[sheetName];
     if (!ws['!ref']) return { name: sheetName, type: null, objects: [] };
 
-    // Read cells individually to get actual types, not SheetJS formatting choices.
-    //   cell.t === 'n'  → number  : return plain numeric string (no £, no commas)
-    //   cell.t === 'd'  → date    : return YYYY-MM-DD string
-    //   anything else   → return cell.w (formatted text) or raw value as string
-    const range = XLSX.utils.decode_range(ws['!ref']);
-    const allRows = [];
-    for (let R = range.s.r; R <= range.e.r; R++) {
-      const row = [];
-      for (let C = range.s.c; C <= range.e.c; C++) {
-        const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
-        if (!cell || cell.t === 'z') { row.push(''); continue; }
-        if (cell.t === 'd') {
-          const d = cell.v instanceof Date ? cell.v : new Date(cell.v);
-          row.push(isNaN(d) ? '' : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
-        } else if (cell.t === 'n') {
-          row.push(String(cell.v));   // raw JS number — no currency symbols, no commas
-        } else {
-          row.push(String(cell.w ?? cell.v ?? '').trim());  // formatted text for strings
+    // Use sheet_to_json for performance (cell-by-cell loops freeze the browser on large sheets).
+    // raw: true → JS numbers for numeric cells (no £/comma formatting), Date objects for date cells.
+    // defval: '' → empty string for blank cells.
+    const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true })
+      .map(row => row.map(v => {
+        if (v instanceof Date) {
+          return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
         }
-      }
-      allRows.push(row);
-    }
+        return String(v ?? '').trim();
+      }));
 
     let type   = null;
     let hdrIdx = -1;
