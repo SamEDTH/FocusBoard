@@ -87,8 +87,14 @@ function parseCSV(text) {
  */
 function cleanNumber(val) {
   if (val == null || val === '') return '';
-  const s = String(val).replace(/[£$€,\s%]+/g, '').trim();
-  return /^-?\d*\.?\d+$/.test(s) ? s : '';
+  // Strip everything that isn't a digit, decimal point, or leading minus.
+  // This handles £/$/€ symbols, commas, spaces, % — regardless of Unicode encoding.
+  const s = String(val).replace(/[^\d.\-]/g, '');
+  if (!s || s === '-' || s === '.') return '';
+  // Guard against multiple decimal points (e.g. European "1.234.567,00" → just keep first dot)
+  const dot = s.indexOf('.');
+  const clean = dot < 0 ? s : s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, '');
+  return /^-?\d+\.?\d*$/.test(clean) ? clean : '';
 }
 
 const MONTHS = { jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12' };
@@ -330,33 +336,45 @@ async function parseXLSXFile(file) {
   const INV_KWS  = ['party', 'invoice', 'status'];
 
   return wb.SheetNames.map(sheetName => {
-    const ws      = wb.Sheets[sheetName];
-    // raw: true  → numbers come back as plain JS numbers (avoids £1,234 formatted strings)
-    // cellDates: true → date cells come back as JS Date objects
-    const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
+    const ws = wb.Sheets[sheetName];
+    if (!ws['!ref']) return { name: sheetName, type: null, objects: [] };
+
+    // Read cells individually to get actual types, not SheetJS formatting choices.
+    //   cell.t === 'n'  → number  : return plain numeric string (no £, no commas)
+    //   cell.t === 'd'  → date    : return YYYY-MM-DD string
+    //   anything else   → return cell.w (formatted text) or raw value as string
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    const allRows = [];
+    for (let R = range.s.r; R <= range.e.r; R++) {
+      const row = [];
+      for (let C = range.s.c; C <= range.e.c; C++) {
+        const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+        if (!cell || cell.t === 'z') { row.push(''); continue; }
+        if (cell.t === 'd') {
+          const d = cell.v instanceof Date ? cell.v : new Date(cell.v);
+          row.push(isNaN(d) ? '' : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+        } else if (cell.t === 'n') {
+          row.push(String(cell.v));   // raw JS number — no currency symbols, no commas
+        } else {
+          row.push(String(cell.w ?? cell.v ?? '').trim());  // formatted text for strings
+        }
+      }
+      allRows.push(row);
+    }
 
     let type   = null;
     let hdrIdx = -1;
-    if ((hdrIdx = detectHeaderRow(allRows, CONS_KWS)) >= 0)      type = 'consultants';
-    else if ((hdrIdx = detectHeaderRow(allRows, INV_KWS)) >= 0)  type = 'invoices';
+    if ((hdrIdx = detectHeaderRow(allRows, CONS_KWS)) >= 0)     type = 'consultants';
+    else if ((hdrIdx = detectHeaderRow(allRows, INV_KWS)) >= 0) type = 'invoices';
 
     let objects = [];
     if (hdrIdx >= 0) {
-      // Normalise headers: lower-case, strip £ % ? / characters
-      const hdrs = allRows[hdrIdx].map(c => String(c ?? '').toLowerCase().replace(/[£%?/]+/g, '').trim());
+      const hdrs = allRows[hdrIdx].map(c => c.toLowerCase().replace(/[£%?/]+/g, '').trim());
       objects = allRows.slice(hdrIdx + 1)
-        .filter(r => r.some(c => c !== '' && c != null))
+        .filter(r => r.some(c => c !== ''))
         .map(r => {
           const obj = {};
-          hdrs.forEach((h, i) => {
-            const v = r[i];
-            // Date objects → ISO string; everything else → plain string
-            if (v instanceof Date) {
-              obj[h] = `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
-            } else {
-              obj[h] = String(v ?? '').trim();
-            }
-          });
+          hdrs.forEach((h, i) => { obj[h] = r[i] ?? ''; });
           return obj;
         });
     }
