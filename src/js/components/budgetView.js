@@ -81,6 +81,47 @@ function parseCSV(text) {
   return { headers: rawHeaders, rows };
 }
 
+/**
+ * Strip currency symbols, commas, spaces from a value and return a plain numeric string.
+ * Returns '' if the result isn't a valid number.
+ */
+function cleanNumber(val) {
+  if (val == null || val === '') return '';
+  const s = String(val).replace(/[£$€,\s%]+/g, '').trim();
+  return /^-?\d*\.?\d+$/.test(s) ? s : '';
+}
+
+const MONTHS = { jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12' };
+
+/**
+ * Normalise a date value from any common format to YYYY-MM-DD.
+ * Handles: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, "20 Jun 2022", "20-Jun-22", JS Date strings.
+ */
+function cleanDate(val) {
+  if (val == null || val === '') return '';
+  const s = String(val).trim();
+  // Already ISO
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // DD/MM/YYYY or DD-MM-YYYY (UK)
+  const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+  // "20 Jun 2022" / "20-Jun-22" / "20 June 2022"
+  const named = s.match(/^(\d{1,2})[\s\-]([A-Za-z]{3,9})[\s\-](\d{2,4})$/);
+  if (named) {
+    const m = MONTHS[named[2].substring(0, 3).toLowerCase()];
+    if (m) {
+      const yr = named[3].length === 2 ? '20' + named[3] : named[3];
+      return `${yr}-${m}-${named[1].padStart(2, '0')}`;
+    }
+  }
+  // JS Date as fallback
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  return s; // return unchanged if unrecognised
+}
+
 /** Looks up a field in a CSV row object by one or more candidate key strings (partial, case-insensitive). */
 function get(row, ...candidates) {
   for (const c of candidates) {
@@ -324,8 +365,8 @@ function mapToConsultant(row) {
     discipline:     get(row, 'discipline'),
     category:       get(row, 'category', 'cat'),
     subCategory:    get(row, 'sub category', 'subcategory', 'sub-category'),
-    quote:          get(row, 'quote', 'fee'),
-    contingencyPct: get(row, 'contingency', 'cont') || '10',
+    quote:          cleanNumber(get(row, 'quote', 'fee')),
+    contingencyPct: cleanNumber(get(row, 'contingency', 'cont')) || '10',
     invoicingDone:  false,
     comments:       get(row, 'comments', 'notes', 'comment'),
   };
@@ -347,14 +388,14 @@ function mapToInvoice(row, catId) {
     discipline:    match?.discipline || get(row, 'discipline'),
     category:      match?.category   || get(row, 'category', 'cat'),
     subCategory:   match?.subCategory || get(row, 'sub category', 'subcategory', 'sub-category'),
-    invoiceDate:   get(row, 'invoice date', 'date'),
+    invoiceDate:   cleanDate(get(row, 'invoice date', 'date')),
     invoiceNumber: invNum,
-    dueDate:       get(row, 'due date'),
+    dueDate:       cleanDate(get(row, 'due date')),
     status:        get(row, 'status') || 'Pending',
-    net:           get(row, 'net value', 'net', 'amount'),
-    vat:           get(row, 'vat'),
-    accountsDate:  get(row, 'accounts'),
-    paidDate:      get(row, 'paid'),
+    net:           cleanNumber(get(row, 'net value', 'net', 'amount')),
+    vat:           cleanNumber(get(row, 'vat')),
+    accountsDate:  cleanDate(get(row, 'accounts')),
+    paidDate:      cleanDate(get(row, 'paid')),
     comment:       get(row, 'comment', 'comments', 'notes'),
     consultantId:  match?.id || '',
   };
@@ -680,8 +721,8 @@ function buildConsultants(catId, consultants, invoices) {
           discipline:     get(row, 'discipline'),
           category:       get(row, 'category', 'cat'),
           subCategory:    get(row, 'sub-category', 'subcategory', 'sub category', 'sub'),
-          quote:          get(row, 'quote', 'fee', 'amount', 'quote '),
-          contingencyPct: get(row, 'contingency', 'cont', 'cont %', 'contingency %') || '10',
+          quote:          cleanNumber(get(row, 'quote', 'fee', 'amount', 'quote ')),
+          contingencyPct: cleanNumber(get(row, 'contingency', 'cont', 'cont %', 'contingency %')) || '10',
           invoicingDone:  false,
           comments:       get(row, 'comments', 'notes', 'comment'),
         }))
@@ -1032,14 +1073,14 @@ export function buildInvoicesView(catId) {
             discipline:    match?.discipline  || get(row, 'discipline'),
             category:      match?.category    || get(row, 'category', 'cat'),
             subCategory:   match?.subCategory || get(row, 'sub-category', 'subcategory', 'sub category', 'sub'),
-            invoiceDate:   get(row, 'invoice date', 'date'),
+            invoiceDate:   cleanDate(get(row, 'invoice date', 'date')),
             invoiceNumber: invNum,
-            dueDate:       get(row, 'due date'),
+            dueDate:       cleanDate(get(row, 'due date')),
             status:        get(row, 'status') || 'Pending',
-            net:           get(row, 'net', 'net ', 'net amount', 'amount', 'ex vat', 'excl vat'),
-            vat:           get(row, 'vat', 'vat ', 'tax'),
-            accountsDate:  get(row, 'accounts date', 'accounts'),
-            paidDate:      get(row, 'paid date', 'paid'),
+            net:           cleanNumber(get(row, 'net', 'net ', 'net amount', 'amount', 'ex vat', 'excl vat')),
+            vat:           cleanNumber(get(row, 'vat', 'vat ', 'tax')),
+            accountsDate:  cleanDate(get(row, 'accounts date', 'accounts')),
+            paidDate:      cleanDate(get(row, 'paid date', 'paid')),
             comment:       get(row, 'comment', 'comments', 'notes'),
             consultantId:  match?.id || '',
           };
