@@ -358,11 +358,24 @@ async function parseXLSXFile(file) {
     let objects = [];
     if (hdrIdx >= 0) {
       const hdrs = allRows[hdrIdx].map(c => c.toLowerCase().replace(/[£%?/]+/g, '').trim());
+
+      // Columns whose values must be plain numbers (strip £, commas, etc.)
+      const NUM_KEYS  = new Set(['quote', 'fee', 'net', 'vat', 'amount', 'contingency', 'cont', 'total', 'balance', 'paid', 'invoiced']);
+      // Columns whose values must be YYYY-MM-DD dates
+      const DATE_KEYS = new Set(['date', 'due', 'accounts', 'paid date', 'accounts date', 'invoice date']);
+
+      // Decide clean function for each column up-front, once
+      const cleaners = hdrs.map(h => {
+        if (NUM_KEYS.has(h) || [...NUM_KEYS].some(k => h.includes(k))) return cleanNumber;
+        if (DATE_KEYS.has(h) || [...DATE_KEYS].some(k => h.includes(k))) return cleanDate;
+        return v => v;
+      });
+
       objects = allRows.slice(hdrIdx + 1)
         .filter(r => r.some(c => c !== ''))
         .map(r => {
           const obj = {};
-          hdrs.forEach((h, i) => { obj[h] = r[i] ?? ''; });
+          hdrs.forEach((h, i) => { obj[h] = cleaners[i](r[i] ?? ''); });
           return obj;
         });
     }
