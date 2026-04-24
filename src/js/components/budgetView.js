@@ -391,7 +391,7 @@ async function parseXLSXFile(file) {
           return obj;
         });
     }
-    return { name: sheetName, type, objects };
+    return { name: sheetName, type, objects, sourceHeaders: hdrs };
   });
 }
 
@@ -441,6 +441,99 @@ function mapToInvoice(row, catId) {
   };
 }
 
+// ── Column mapping helpers ─────────────────────────────────────────────────────
+
+const FIELD_DEFS = {
+  consultants: [
+    { key: 'party',          label: 'Party',        required: true,  candidates: ['party', 'firm', 'name'],                                   clean: v => v },
+    { key: 'company',        label: 'Company',       required: false, candidates: ['company'],                                                  clean: v => v },
+    { key: 'contact',        label: 'Contact',       required: false, candidates: ['contact', 'email', 'e-mail', 'email address', 'person'],   clean: v => v },
+    { key: 'appointed',      label: 'Appointed',     required: false, candidates: ['appointed'],                                               clean: v => v || '—' },
+    { key: 'discipline',     label: 'Discipline',    required: false, candidates: ['discipline'],                                              clean: v => v },
+    { key: 'category',       label: 'Category',      required: false, candidates: ['category', 'cat'],                                         clean: v => v },
+    { key: 'subCategory',    label: 'Sub-Category',  required: false, candidates: ['sub category', 'subcategory', 'sub-category'],             clean: v => v },
+    { key: 'quote',          label: 'Quote £',       required: false, candidates: ['quote', 'fee'],                                            clean: v => cleanNumber(v) },
+    { key: 'contingencyPct', label: 'Cont %',        required: false, candidates: ['contingency', 'cont'],                                    clean: v => normaliseContingency(cleanNumber(v)) },
+    { key: 'comments',       label: 'Comments',      required: false, candidates: ['comments', 'notes', 'comment'],                           clean: v => v },
+  ],
+  invoices: [
+    { key: 'party',          label: 'Party',         required: true,  candidates: ['party', 'firm', 'supplier', 'vendor'],                     clean: v => v },
+    { key: 'invoiceNumber',  label: 'Invoice #',     required: false, candidates: ['invoice #', 'invoice number', 'inv #', 'inv no'],          clean: v => v },
+    { key: 'invoiceDate',    label: 'Invoice Date',  required: false, candidates: ['invoice date', 'date'],                                    clean: cleanDate },
+    { key: 'documentType',   label: 'Doc Type',      required: false, candidates: ['document type', 'doc type', 'type', 'document'],           clean: v => v || 'Invoice' },
+    { key: 'net',            label: 'Net £',         required: false, candidates: ['net value', 'net', 'amount', 'ex vat', 'excl vat'],        clean: cleanNumber },
+    { key: 'vat',            label: 'VAT £',         required: false, candidates: ['vat'],                                                     clean: cleanNumber },
+    { key: 'status',         label: 'Status',        required: false, candidates: ['status'],                                                  clean: v => v || 'Pending' },
+    { key: 'category',       label: 'Category',      required: false, candidates: ['category', 'cat'],                                         clean: v => v },
+    { key: 'dueDate',        label: 'Due Date',      required: false, candidates: ['due date', 'due'],                                         clean: cleanDate },
+    { key: 'accountsDate',   label: 'Accounts Date', required: false, candidates: ['accounts date', 'accounts'],                              clean: cleanDate },
+    { key: 'paidDate',       label: 'Paid Date',     required: false, candidates: ['paid date', 'paid'],                                      clean: cleanDate },
+    { key: 'comment',        label: 'Comment',       required: false, candidates: ['comment', 'comments', 'notes'],                           clean: v => v },
+  ],
+};
+
+function autoMatchHeader(sourceHeaders, candidates) {
+  for (const c of candidates) {
+    const cLow = c.toLowerCase();
+    const found = sourceHeaders.find(h => { const hLow = h.toLowerCase(); return hLow === cLow || hLow.includes(cLow); });
+    if (found) return found;
+  }
+  return '';
+}
+
+function buildInitialMapping(fieldDefs, sourceHeaders) {
+  const m = {};
+  fieldDefs.forEach(f => { m[f.key] = autoMatchHeader(sourceHeaders, f.candidates); });
+  return m;
+}
+
+function applyConsultantMapping(mapping, rawRows) {
+  const pick = (row, key) => mapping[key] ? String(row[mapping[key]] ?? '').trim() : '';
+  return rawRows.map(row => ({
+    party:          pick(row, 'party'),
+    company:        pick(row, 'company'),
+    contact:        pick(row, 'contact'),
+    appointed:      pick(row, 'appointed') || '—',
+    discipline:     pick(row, 'discipline'),
+    category:       pick(row, 'category'),
+    subCategory:    pick(row, 'subCategory'),
+    quote:          cleanNumber(pick(row, 'quote')),
+    contingencyPct: normaliseContingency(cleanNumber(pick(row, 'contingencyPct'))),
+    invoicingDone:  false,
+    comments:       pick(row, 'comments'),
+  })).filter(r => r.party);
+}
+
+function applyInvoiceMapping(mapping, rawRows, catId) {
+  const cons = getPanelData().categories.find(c => c.id === catId)?.budget?.consultants || [];
+  const pick = (row, key) => mapping[key] ? String(row[mapping[key]] ?? '').trim() : '';
+  return rawRows.map(row => {
+    const party = pick(row, 'party');
+    const match = cons.find(c => c.party && c.party.toLowerCase() === party.toLowerCase());
+    return {
+      party,
+      company:       match?.company    || pick(row, 'company'),
+      project:       pick(row, 'project') || bibleField(catId, 'project', 'project name'),
+      dm:            pick(row, 'dm')    || bibleField(catId, 'dm', 'development manager'),
+      spvName:       pick(row, 'spvName') || bibleField(catId, 'spv name', 'spv'),
+      documentType:  pick(row, 'documentType') || 'Invoice',
+      discipline:    match?.discipline || pick(row, 'discipline'),
+      category:      match?.category   || pick(row, 'category'),
+      subCategory:   match?.subCategory || pick(row, 'subCategory'),
+      invoiceDate:   cleanDate(pick(row, 'invoiceDate')),
+      invoiceNumber: pick(row, 'invoiceNumber'),
+      dueDate:       cleanDate(pick(row, 'dueDate')),
+      status:        pick(row, 'status') || 'Pending',
+      net:           cleanNumber(pick(row, 'net')),
+      vat:           cleanNumber(pick(row, 'vat')),
+      accountsDate:  cleanDate(pick(row, 'accountsDate')),
+      paidDate:      cleanDate(pick(row, 'paidDate')),
+      comment:       pick(row, 'comment'),
+      consultantId:  match?.id || '',
+    };
+  }).filter(r => r.party || r.invoiceNumber);
+}
+
 const XLSX_COLS = {
   consultants: [
     { label: 'Party',      key: 'party' },
@@ -475,43 +568,92 @@ function showXLSXPreview(catId, sheets, filename) {
   // Include/exclude state per sheet (default: include all detected)
   const include = new Map(sheets.map(s => [s.name, s.type !== null]));
 
-  // ── Sheet list ────────────────────────────────────────────────────────────
   const TYPE_LABEL = { consultants: 'Budget / Consultants', invoices: 'Invoices / Payment Tracker' };
   const TYPE_CLS   = { consultants: 'imp-type-cons', invoices: 'imp-type-inv' };
 
   let activeSheet = sheets.find(s => s.type)?.name;
 
+  // Per-sheet column mappings: sheetName → { fieldKey: sourceHeader }
+  const sheetMappings = new Map();
+  sheets.forEach(s => {
+    if (s.type && s.sourceHeaders) {
+      sheetMappings.set(s.name, buildInitialMapping(FIELD_DEFS[s.type], s.sourceHeaders));
+    }
+  });
+
   const sheetListEl = h('tbody');
+  const mappingEl   = h('div', { class: 'imp-map-section' });
   const previewEl   = h('div', { class: 'imp-scroll' });
   const summaryEl   = h('span', { class: 'imp-summary' });
   const importBtn   = h('button', { class: 'imp-btn-confirm' }, 'Import');
 
-  // Count valid rows per sheet (no consultant linking needed for count)
-  const countRows = s => s.type === 'consultants'
-    ? s.objects.filter(r => get(r, 'party', 'firm', 'name')).length
-    : s.objects.filter(r => get(r, 'party', 'firm', 'supplier', 'vendor') || get(r, 'invoice #', 'invoice number', 'inv #', 'inv no')).length;
+  const countMapped = s => {
+    if (!s.type) return 0;
+    const mapping = sheetMappings.get(s.name) || {};
+    return s.type === 'consultants'
+      ? applyConsultantMapping(mapping, s.objects).length
+      : applyInvoiceMapping(mapping, s.objects, catId).length;
+  };
+
+  const renderPreviewAndFooter = () => {
+    previewEl.innerHTML = '';
+    const sheet = sheets.find(s => s.name === activeSheet);
+    if (!sheet?.type) {
+      previewEl.appendChild(h('div', { class: 'imp-empty' }, 'Click a recognised sheet above to preview its data.'));
+    } else {
+      const mapping = sheetMappings.get(sheet.name) || {};
+      const mapped  = sheet.type === 'consultants'
+        ? applyConsultantMapping(mapping, sheet.objects)
+        : applyInvoiceMapping(mapping, sheet.objects, catId);
+      const cols    = XLSX_COLS[sheet.type];
+      const preview = mapped.slice(0, 100);
+      if (!preview.length) {
+        previewEl.appendChild(h('div', { class: 'imp-empty' }, 'No valid rows found. Check the Party column mapping above.'));
+      } else {
+        previewEl.appendChild(h('div', { class: 'imp-preview-label' },
+          `${sheet.name}  ·  ${TYPE_LABEL[sheet.type]}  ·  ${mapped.length} rows`,
+        ));
+        previewEl.appendChild(h('table', { class: 'imp-table' },
+          h('thead', null, h('tr', null, ...cols.map(c => h('th', null, c.label)))),
+          h('tbody', null, ...preview.map(row => h('tr', null, ...cols.map(c => {
+            const val  = String(row[c.key] ?? '');
+            const cell = h('td', null, val);
+            if (!val) cell.classList.add('imp-td-empty');
+            return cell;
+          })))),
+        ));
+        if (mapped.length > 100) previewEl.appendChild(h('div', { class: 'imp-more' }, `Showing first 100 of ${mapped.length} rows.`));
+      }
+    }
+    // Footer
+    const included = sheets.filter(s => s.type && include.get(s.name));
+    const nCons = included.filter(s => s.type === 'consultants').reduce((n, s) => n + countMapped(s), 0);
+    const nInv  = included.filter(s => s.type === 'invoices').reduce((n, s) => n + countMapped(s), 0);
+    const parts = [];
+    if (nCons) parts.push(`${nCons} consultant${nCons !== 1 ? 's' : ''}`);
+    if (nInv)  parts.push(`${nInv} invoice${nInv !== 1 ? 's' : ''}`);
+    const total = nCons + nInv;
+    summaryEl.textContent = total > 0 ? `Ready to import: ${parts.join(' + ')}` : 'No sheets selected';
+    importBtn.disabled    = total === 0;
+    importBtn.textContent = total > 0 ? `Import ${total} rows` : 'Import';
+  };
 
   const renderAll = () => {
     // Sheet list
     sheetListEl.innerHTML = '';
     sheets.forEach(s => {
       const isOn  = include.get(s.name);
-      const count = s.type ? countRows(s) : null;
-
-      const toggle = h('button', { class: `imp-toggle${isOn ? ' imp-toggle-on' : ''}`, disabled: !s.type },
-        isOn ? 'Include' : 'Skip',
-      );
+      const count = s.type ? countMapped(s) : null;
+      const toggle = h('button', { class: `imp-toggle${isOn ? ' imp-toggle-on' : ''}`, disabled: !s.type }, isOn ? 'Include' : 'Skip');
       if (s.type) {
         toggle.addEventListener('click', () => {
           include.set(s.name, !isOn);
-          if (!isOn) activeSheet = s.name;  // switch preview to the newly enabled sheet
+          if (!isOn) activeSheet = s.name;
           renderAll();
         });
       }
-
       const nameEl = h('td', { class: `imp-sheet-name${s.name === activeSheet ? ' imp-sheet-active-name' : ''}` }, s.name);
       if (s.type) nameEl.addEventListener('click', () => { activeSheet = s.name; renderAll(); });
-
       sheetListEl.appendChild(h('tr', { class: s.name === activeSheet ? 'imp-sheet-row-active' : 'imp-sheet-row' },
         nameEl,
         h('td', null, s.type ? h('span', { class: `imp-type-badge ${TYPE_CLS[s.type]}` }, TYPE_LABEL[s.type]) : h('span', { class: 'imp-type-badge imp-type-none' }, 'Not recognised')),
@@ -520,63 +662,43 @@ function showXLSXPreview(catId, sheets, filename) {
       ));
     });
 
-    // Preview pane
-    previewEl.innerHTML = '';
+    // Column mapping UI for active sheet
+    mappingEl.innerHTML = '';
     const sheet = sheets.find(s => s.name === activeSheet);
-    if (!sheet || !sheet.type) {
-      previewEl.appendChild(h('div', { class: 'imp-empty' }, 'Click a recognised sheet above to preview its data.'));
-    } else {
-      const cols    = XLSX_COLS[sheet.type];
-      // For preview we map against current store (consultant linking will be re-done at import time)
-      const mapped  = sheet.type === 'consultants'
-        ? sheet.objects.map(mapToConsultant).filter(r => r.party)
-        : sheet.objects.map(r => mapToInvoice(r, catId)).filter(r => r.party || r.invoiceNumber);
-      const preview = mapped.slice(0, 100);
-      if (!preview.length) {
-        previewEl.appendChild(h('div', { class: 'imp-empty' }, 'No valid rows found in this sheet.'));
-      } else {
-        previewEl.appendChild(h('div', { class: 'imp-preview-label' },
-          `${sheet.name}  ·  ${TYPE_LABEL[sheet.type]}  ·  ${mapped.length} rows`,
+    if (sheet?.type && sheet.sourceHeaders?.length) {
+      const fieldDefs = FIELD_DEFS[sheet.type];
+      const mapping   = sheetMappings.get(sheet.name);
+      mappingEl.appendChild(h('div', { class: 'imp-map-header' }, `Column mapping — ${sheet.name}`));
+      const grid = h('div', { class: 'imp-map-grid' });
+      fieldDefs.forEach(({ key, label, required }) => {
+        const sel = h('select', { class: 'imp-map-sel' });
+        sel.appendChild(h('option', { value: '' }, '— none —'));
+        sheet.sourceHeaders.forEach(src => {
+          const opt = h('option', { value: src }, src);
+          if (src === mapping[key]) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        sel.addEventListener('change', () => { mapping[key] = sel.value; renderPreviewAndFooter(); });
+        grid.appendChild(h('div', { class: 'imp-map-row' },
+          h('span', { class: `imp-map-label${required ? ' imp-map-req' : ''}` }, label),
+          sel,
         ));
-        const table = h('table', { class: 'imp-table' },
-          h('thead', null, h('tr', null, ...cols.map(c => h('th', null, c.label)))),
-          h('tbody', null, ...preview.map(row => h('tr', null, ...cols.map(c => {
-            const val  = String(row[c.key] ?? '');
-            const cell = h('td', null, val);
-            if (!val) cell.classList.add('imp-td-empty');
-            return cell;
-          })))),
-        );
-        previewEl.appendChild(table);
-        if (mapped.length > 100) previewEl.appendChild(h('div', { class: 'imp-more' }, `Showing first 100 of ${mapped.length} rows.`));
-      }
+      });
+      mappingEl.appendChild(grid);
     }
 
-    // Footer summary
-    const included = sheets.filter(s => s.type && include.get(s.name));
-    const total    = included.reduce((n, s) => n + countRows(s), 0);
-    const parts    = [];
-    const nCons = included.filter(s => s.type === 'consultants').reduce((n, s) => n + countRows(s), 0);
-    const nInv  = included.filter(s => s.type === 'invoices').reduce((n, s) => n + countRows(s), 0);
-    if (nCons) parts.push(`${nCons} consultant${nCons !== 1 ? 's' : ''}`);
-    if (nInv)  parts.push(`${nInv} invoice${nInv !== 1 ? 's' : ''}`);
-    summaryEl.textContent = total > 0 ? `Ready to import: ${parts.join(' + ')}` : 'No sheets selected';
-    importBtn.disabled    = total === 0;
-    importBtn.textContent = total > 0 ? `Import ${total} rows` : 'Import';
+    renderPreviewAndFooter();
   };
 
-  // ── Actual import — consultants FIRST so invoices can link to them ─────────
+  // Import — consultants FIRST so invoices can link to them
   importBtn.addEventListener('click', () => {
     const conSheets = sheets.filter(s => s.type === 'consultants' && include.get(s.name));
     const invSheets = sheets.filter(s => s.type === 'invoices'    && include.get(s.name));
-    // Consultants first so invoice consultant-ID linking resolves
-    conSheets.forEach(s => s.objects.map(mapToConsultant).filter(r => r.party).forEach(r => upsertConsultant(catId, r)));
-    // Re-map invoices AFTER consultants are in the store so consultant IDs resolve
-    invSheets.forEach(s => s.objects.map(r => mapToInvoice(r, catId)).filter(r => r.party || r.invoiceNumber).forEach(r => upsertInvoice(catId, r)));
+    conSheets.forEach(s => applyConsultantMapping(sheetMappings.get(s.name) || {}, s.objects).forEach(r => upsertConsultant(catId, r)));
+    invSheets.forEach(s => applyInvoiceMapping(sheetMappings.get(s.name) || {}, s.objects, catId).forEach(r => upsertInvoice(catId, r)));
     close();
   });
 
-  // ── Assemble dialog ───────────────────────────────────────────────────────
   const dialog = h('div', { class: 'imp-dialog' });
   dialog.appendChild(h('div', { class: 'imp-hdr' },
     h('div', { class: 'imp-hdr-left' },
@@ -586,7 +708,7 @@ function showXLSXPreview(catId, sheets, filename) {
     h('button', { class: 'imp-x', onClick: close }, '×'),
   ));
   dialog.appendChild(h('div', { class: 'imp-sheet-note' },
-    'Values only — formula results are imported, not the formulas themselves. Multi-sheet files are imported in one go; consultants are imported before invoices so budget links resolve correctly.',
+    'Consultants are imported before invoices so budget links resolve correctly. Use the column mapping below to fix any fields that are blank in the preview.',
   ));
   dialog.appendChild(h('div', { class: 'imp-sheetlist-wrap' },
     h('table', { class: 'imp-sheetlist' },
@@ -596,6 +718,7 @@ function showXLSXPreview(catId, sheets, filename) {
       sheetListEl,
     ),
   ));
+  dialog.appendChild(mappingEl);
   dialog.appendChild(previewEl);
   dialog.appendChild(h('div', { class: 'imp-footer' },
     summaryEl,
