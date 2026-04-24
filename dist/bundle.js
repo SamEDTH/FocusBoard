@@ -24969,6 +24969,13 @@ ${suffix}`;
     const clean = dot < 0 ? s : s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, "");
     return /^-?\d+\.?\d*$/.test(clean) ? clean : "";
   }
+  function normaliseContingency(cleaned) {
+    if (cleaned === "" || cleaned == null) return "10";
+    const n = parseFloat(cleaned);
+    if (isNaN(n)) return "10";
+    if (n > 0 && n <= 1) return String(Math.round(n * 100));
+    return cleaned;
+  }
   var MONTHS = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12" };
   function cleanDate(val) {
     if (val == null || val === "") return "";
@@ -25211,9 +25218,10 @@ ${suffix}`;
       category: get2(row, "category", "cat"),
       subCategory: get2(row, "sub category", "subcategory", "sub-category"),
       quote: cleanNumber(get2(row, "quote", "fee")),
-      contingencyPct: cleanNumber(get2(row, "contingency", "cont")) || "10",
+      contingencyPct: normaliseContingency(cleanNumber(get2(row, "contingency", "cont"))),
       invoicingDone: false,
-      comments: get2(row, "comments", "notes", "comment")
+      comments: get2(row, "comments", "notes", "comment"),
+      email: get2(row, "email", "e-mail", "email address")
     };
   }
   function mapToInvoice(row, catId) {
@@ -25247,6 +25255,8 @@ ${suffix}`;
     consultants: [
       { label: "Party", key: "party" },
       { label: "Company", key: "company" },
+      { label: "Contact", key: "contact" },
+      { label: "Email", key: "email" },
       { label: "Discipline", key: "discipline" },
       { label: "Category", key: "category" },
       { label: "Sub-Cat", key: "subCategory" },
@@ -25472,7 +25482,7 @@ ${err.message}`);
     return {
       invoiced: linked.reduce((s, i) => s + num(i.net), 0),
       paid: linked.filter((i) => i.status === "Paid").reduce((s, i) => s + num(i.net), 0),
-      accounts: linked.filter((i) => ["Pending", "Approved", "Paid"].includes(i.status)).reduce((s, i) => s + num(i.net), 0)
+      accounts: linked.filter((i) => ["Pending", "Approved"].includes(i.status)).reduce((s, i) => s + num(i.net), 0)
     };
   }
   function buildPivot(consultants, invoices) {
@@ -25558,6 +25568,7 @@ ${err.message}`);
         td(inp(c.party, "Party", (v) => upd2({ party: v }))),
         td(inp(c.company, "Company", (v) => upd2({ company: v }))),
         td(inp(c.contact, "Contact", (v) => upd2({ contact: v }))),
+        td(inp(c.email, "Email", (v) => upd2({ email: v }))),
         td(selStr(c.appointed || "\u2014", APPOINTED, (v) => upd2({ appointed: v }))),
         td(inp(c.discipline, "Discipline", (v) => upd2({ discipline: v }))),
         td(inp(c.category, "Category", (v) => upd2({ category: v }))),
@@ -25581,6 +25592,7 @@ ${err.message}`);
         party: "",
         company: "",
         contact: "",
+        email: "",
         appointed: "\u2014",
         discipline: "",
         category: "",
@@ -25603,14 +25615,16 @@ ${err.message}`);
           category: get2(row, "category", "cat"),
           subCategory: get2(row, "sub-category", "subcategory", "sub category", "sub"),
           quote: cleanNumber(get2(row, "quote", "fee", "amount", "quote ")),
-          contingencyPct: cleanNumber(get2(row, "contingency", "cont", "cont %", "contingency %")) || "10",
+          contingencyPct: normaliseContingency(cleanNumber(get2(row, "contingency", "cont", "cont %", "contingency %"))),
           invoicingDone: false,
-          comments: get2(row, "comments", "notes", "comment")
+          comments: get2(row, "comments", "notes", "comment"),
+          email: get2(row, "email", "e-mail", "email address")
         })).filter((r) => r.party),
         columns: [
           { label: "Party", key: "party" },
           { label: "Company", key: "company" },
           { label: "Contact", key: "contact" },
+          { label: "Email", key: "email" },
           { label: "Discipline", key: "discipline" },
           { label: "Category", key: "category" },
           { label: "Sub-Cat", key: "subCategory" },
@@ -25636,6 +25650,7 @@ ${err.message}`);
           h("th", null, "Party"),
           h("th", null, "Company"),
           h("th", null, "Contact"),
+          h("th", null, "Email"),
           h("th", null, "Appointed"),
           h("th", null, "Discipline"),
           h("th", null, "Category"),

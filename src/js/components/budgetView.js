@@ -98,6 +98,16 @@ function cleanNumber(val) {
   return /^-?\d+\.?\d*$/.test(clean) ? clean : '';
 }
 
+/** Contingency may arrive as a decimal fraction (0.1) or a percentage (10).
+ *  If the cleaned number is > 0 and ≤ 1, treat it as a fraction and convert to %. */
+function normaliseContingency(cleaned) {
+  if (cleaned === '' || cleaned == null) return '10';
+  const n = parseFloat(cleaned);
+  if (isNaN(n)) return '10';
+  if (n > 0 && n <= 1) return String(Math.round(n * 100));
+  return cleaned;
+}
+
 const MONTHS = { jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12' };
 
 /**
@@ -395,9 +405,10 @@ function mapToConsultant(row) {
     category:       get(row, 'category', 'cat'),
     subCategory:    get(row, 'sub category', 'subcategory', 'sub-category'),
     quote:          cleanNumber(get(row, 'quote', 'fee')),
-    contingencyPct: cleanNumber(get(row, 'contingency', 'cont')) || '10',
+    contingencyPct: normaliseContingency(cleanNumber(get(row, 'contingency', 'cont'))),
     invoicingDone:  false,
     comments:       get(row, 'comments', 'notes', 'comment'),
+    email:          get(row, 'email', 'e-mail', 'email address'),
   };
 }
 
@@ -434,6 +445,8 @@ const XLSX_COLS = {
   consultants: [
     { label: 'Party',      key: 'party' },
     { label: 'Company',    key: 'company' },
+    { label: 'Contact',    key: 'contact' },
+    { label: 'Email',      key: 'email' },
     { label: 'Discipline', key: 'discipline' },
     { label: 'Category',   key: 'category' },
     { label: 'Sub-Cat',    key: 'subCategory' },
@@ -672,7 +685,7 @@ function getConsultantTotals(consultantId, invoices) {
   return {
     invoiced: linked.reduce((s, i) => s + num(i.net), 0),
     paid:     linked.filter(i => i.status === 'Paid').reduce((s, i) => s + num(i.net), 0),
-    accounts: linked.filter(i => ['Pending', 'Approved', 'Paid'].includes(i.status)).reduce((s, i) => s + num(i.net), 0),
+    accounts: linked.filter(i => ['Pending', 'Approved'].includes(i.status)).reduce((s, i) => s + num(i.net), 0),
   };
 }
 
@@ -752,6 +765,7 @@ function buildConsultants(catId, consultants, invoices) {
       td(inp(c.party,          'Party',        v => upd({ party: v }))),
       td(inp(c.company,        'Company',      v => upd({ company: v }))),
       td(inp(c.contact,        'Contact',      v => upd({ contact: v }))),
+      td(inp(c.email,          'Email',        v => upd({ email: v }))),
       td(selStr(c.appointed || '—', APPOINTED, v => upd({ appointed: v }))),
       td(inp(c.discipline,     'Discipline',   v => upd({ discipline: v }))),
       td(inp(c.category,       'Category',     v => upd({ category: v }))),
@@ -772,7 +786,7 @@ function buildConsultants(catId, consultants, invoices) {
   const addBtn = h('button', { class: 'bgt-add-btn' }, '+ Add consultant');
   addBtn.addEventListener('click', () =>
     addBudgetConsultant(catId, {
-      party: '', company: '', contact: '', appointed: '—',
+      party: '', company: '', contact: '', email: '', appointed: '—',
       discipline: '', category: '', subCategory: '',
       quote: '', contingencyPct: '10', invoicingDone: false, comments: '',
     }),
@@ -792,15 +806,17 @@ function buildConsultants(catId, consultants, invoices) {
           category:       get(row, 'category', 'cat'),
           subCategory:    get(row, 'sub-category', 'subcategory', 'sub category', 'sub'),
           quote:          cleanNumber(get(row, 'quote', 'fee', 'amount', 'quote ')),
-          contingencyPct: cleanNumber(get(row, 'contingency', 'cont', 'cont %', 'contingency %')) || '10',
+          contingencyPct: normaliseContingency(cleanNumber(get(row, 'contingency', 'cont', 'cont %', 'contingency %'))),
           invoicingDone:  false,
           comments:       get(row, 'comments', 'notes', 'comment'),
+          email:          get(row, 'email', 'e-mail', 'email address'),
         }))
         .filter(r => r.party),
       columns: [
         { label: 'Party',       key: 'party' },
         { label: 'Company',     key: 'company' },
         { label: 'Contact',     key: 'contact' },
+        { label: 'Email',       key: 'email' },
         { label: 'Discipline',  key: 'discipline' },
         { label: 'Category',    key: 'category' },
         { label: 'Sub-Cat',     key: 'subCategory' },
@@ -821,6 +837,7 @@ function buildConsultants(catId, consultants, invoices) {
         h('th', null, 'Party'),
         h('th', null, 'Company'),
         h('th', null, 'Contact'),
+        h('th', null, 'Email'),
         h('th', null, 'Appointed'),
         h('th', null, 'Discipline'),
         h('th', null, 'Category'),
