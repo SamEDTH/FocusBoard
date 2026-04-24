@@ -909,6 +909,34 @@ function ensurePartyDatalist(catId, consultants) {
   });
 }
 
+// ── Filter state (survives store-triggered re-renders) ────────────────────────
+const _filterState = {};  // key: `${catId}:inv` or `${catId}:cons`
+
+function buildFilterInput(key, placeholder, onFilter) {
+  const el = h('input', {
+    class:       'bgt-filter',
+    type:        'search',
+    placeholder,
+    value:       _filterState[key] || '',
+  });
+  el.addEventListener('input', e => {
+    _filterState[key] = e.target.value;
+    onFilter(e.target.value);
+  });
+  return el;
+}
+
+function applyRowFilter(tbody, text) {
+  const q = text.trim().toLowerCase();
+  tbody.querySelectorAll('tr').forEach(row => {
+    if (!q) { row.style.display = ''; return; }
+    const hit = [...row.querySelectorAll('td')].some(td =>
+      td.textContent.toLowerCase().includes(q)
+    );
+    row.style.display = hit ? '' : 'none';
+  });
+}
+
 // ── Row selection ─────────────────────────────────────────────────────────────
 let _selCatId = null;
 const selectedInvoiceIds = new Set();
@@ -1039,6 +1067,11 @@ function buildInvoiceTable(catId, invoices, consultants, onSelectionChange) {
       h('tbody', null, ...rows),
     ),
   ));
+
+  // Apply any active filter immediately after building
+  const invTbody = block.querySelector('tbody');
+  applyRowFilter(invTbody, _filterState[`${catId}:inv`] || '');
+
   const deleteSelBtn = h('button', { class: 'bgt-danger-btn', title: 'Delete selected rows' }, '🗑 Delete selected');
   deleteSelBtn.style.display = selectedInvoiceIds.size > 0 ? '' : 'none';
   deleteSelBtn.addEventListener('click', async () => {
@@ -1084,6 +1117,24 @@ export function buildBudgetView(catId) {
   const budget = cat?.budget || { consultants: [], invoices: [] };
   const frag   = document.createDocumentFragment();
   const { block: consBlock, csvBtn: consCsvBtn } = buildConsultants(catId, budget.consultants, budget.invoices);
+
+  // Apply any active filter to the consultant tbody immediately after build
+  const consTbody = consBlock.querySelector('tbody');
+  applyRowFilter(consTbody, _filterState[`${catId}:cons`] || '');
+
+  const consFilterInput = buildFilterInput(`${catId}:cons`, 'Search party, discipline, category…', q => {
+    applyRowFilter(consTbody, q);
+  });
+
+  // Inject filter next to the Consultants title
+  const consTitle = consBlock.querySelector('.bgt-block-title');
+  if (consTitle) {
+    const titleWrap = h('div', { class: 'bgt-title-row' });
+    consTitle.replaceWith(titleWrap);
+    titleWrap.appendChild(h('div', { class: 'bgt-block-title' }, 'Consultants'));
+    titleWrap.appendChild(consFilterInput);
+  }
+
   frag.appendChild(h('div', { class: 'bgt-xlsx-bar' },
     h('span', { class: 'bgt-xlsx-bar-label' }, 'Import:'),
     buildExcelImportBtn(catId),
@@ -1222,8 +1273,14 @@ export function buildInvoicesView(catId) {
     buildExcelImportBtn(catId),
     invCsvBtn,
   ));
+  const invFilterInput = buildFilterInput(`${catId}:inv`, 'Search party, invoice #, status…', q => {
+    const tbody = document.querySelector('.bgt-table tbody');
+    if (tbody) applyRowFilter(tbody, q);
+  });
+
   const titleRow = h('div', { class: 'bgt-title-row' },
     h('div', { class: 'bgt-block-title' }, 'Payment Tracker'),
+    invFilterInput,
     copyBtn,
   );
   frag.appendChild(titleRow);
