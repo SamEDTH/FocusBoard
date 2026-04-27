@@ -107,7 +107,7 @@ export const S = {
   calWeekStart: null,
   dashFilter: null,   // 'overdue' | 'dueToday' | 'upcoming' | 'chaseDue' | 'awaitingReply' | 'completed' | null
   dashTab: 'all',     // 'all' | 'today' | 'week'
-  catTab: _savedNav?.catTab || 'tasks',    // 'tasks' | 'bible' | 'budget' | 'invoices'
+  catTab: _savedNav?.catTab || 'tasks',    // 'tasks' | 'bible' | 'budget' | 'invoices' | 'cashflow'
   focusBuffer:   savedSettings.focusBuffer   ?? 15,
   focusMinBlock: savedSettings.focusMinBlock ?? 30,
   followUpDays:  savedSettings.followUpDays  ?? 5,
@@ -806,8 +806,15 @@ export function deleteBibleContact(catId, contactId) {
 export function addBudgetConsultant(catId, data) {
   const newData = JSON.parse(JSON.stringify(S.data));
   const cat = newData[S.panel].categories.find(c => c.id === catId);
-  if (!cat?.budget) return;
-  cat.budget.consultants = [...cat.budget.consultants, { id: uid(), ...data }];
+  if (!cat) return;
+  if (!cat.budget) cat.budget = { consultants: [], invoices: [] };
+  const cons = { id: uid(), ...data };
+  // Ensure each pre-supplied phase has its own ID
+  if (cons.phases?.length) {
+    cons.phases = cons.phases.map(p => ({ id: uid(), ...p }));
+    syncPhaseTotal(cons);
+  }
+  cat.budget.consultants = [...cat.budget.consultants, cons];
   upd(newData);
 }
 
@@ -875,5 +882,94 @@ export function clearBudgetInvoices(catId) {
   const cat = newData[S.panel].categories.find(c => c.id === catId);
   if (!cat?.budget) return;
   cat.budget.invoices = [];
+  upd(newData);
+}
+
+// ── Cashflow items ─────────────────────────────────────────────────────────────
+
+export function updateCashflowSettings(catId, patch) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.budget) return;
+  if (!cat.budget.cashflow) cat.budget.cashflow = {};
+  Object.assign(cat.budget.cashflow, patch);
+  upd(newData);
+}
+
+export function updateSubCategoryOrder(catId, categoryName, orderedSubCats) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat) return;
+  if (!cat.budget) cat.budget = { consultants: [], invoices: [] };
+  if (!cat.budget.subCategoryOrder) cat.budget.subCategoryOrder = {};
+  cat.budget.subCategoryOrder[categoryName] = orderedSubCats;
+  upd(newData);
+}
+
+export function addCashflowItem(catId, data) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.budget) return;
+  if (!cat.budget.cashflow) cat.budget.cashflow = {};
+  if (!cat.budget.cashflow.items) cat.budget.cashflow.items = [];
+  cat.budget.cashflow.items.push({ id: uid(), ...data });
+  upd(newData);
+}
+
+export function updateCashflowItem(catId, itemId, patch) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.budget?.cashflow?.items) return;
+  const idx = cat.budget.cashflow.items.findIndex(i => i.id === itemId);
+  if (idx >= 0) Object.assign(cat.budget.cashflow.items[idx], patch);
+  upd(newData);
+}
+
+export function deleteCashflowItem(catId, itemId) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.budget?.cashflow?.items) return;
+  cat.budget.cashflow.items = cat.budget.cashflow.items.filter(i => i.id !== itemId);
+  upd(newData);
+}
+
+// ── Consultant phases ──────────────────────────────────────────────────────────
+
+/** After any phase mutation, re-sum phase amounts into cons.quote so totals stay in sync. */
+function syncPhaseTotal(cons) {
+  if (!cons.phases?.length) return;
+  const sum = cons.phases.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+  cons.quote = String(sum);
+}
+
+export function addConsultantPhase(catId, consId, data) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat  = newData[S.panel].categories.find(c => c.id === catId);
+  const cons = cat?.budget?.consultants?.find(c => c.id === consId);
+  if (!cons) return;
+  if (!cons.phases) cons.phases = [];
+  cons.phases.push({ id: uid(), ...data });
+  syncPhaseTotal(cons);
+  upd(newData);
+}
+
+export function updateConsultantPhase(catId, consId, phaseId, patch) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat  = newData[S.panel].categories.find(c => c.id === catId);
+  const cons = cat?.budget?.consultants?.find(c => c.id === consId);
+  if (!cons?.phases) return;
+  const idx = cons.phases.findIndex(p => p.id === phaseId);
+  if (idx >= 0) Object.assign(cons.phases[idx], patch);
+  syncPhaseTotal(cons);
+  upd(newData);
+}
+
+export function deleteConsultantPhase(catId, consId, phaseId) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat  = newData[S.panel].categories.find(c => c.id === catId);
+  const cons = cat?.budget?.consultants?.find(c => c.id === consId);
+  if (!cons?.phases) return;
+  cons.phases = cons.phases.filter(p => p.id !== phaseId);
+  syncPhaseTotal(cons);
   upd(newData);
 }

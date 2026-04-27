@@ -1,6 +1,36 @@
-import { getPanelData, addBudgetConsultant, updateBudgetConsultant, deleteBudgetConsultant, clearBudgetConsultants, addBudgetInvoice, updateBudgetInvoice, deleteBudgetInvoice, deleteBudgetInvoices, clearBudgetInvoices } from '../store.js';
+import { getPanelData, addBudgetConsultant, updateBudgetConsultant, deleteBudgetConsultant, clearBudgetConsultants, addBudgetInvoice, updateBudgetInvoice, deleteBudgetInvoice, deleteBudgetInvoices, clearBudgetInvoices, addConsultantPhase, updateConsultantPhase, deleteConsultantPhase, updateCashflowSettings } from '../store.js';
 import { h } from '../dom.js';
 import { showConfirm } from './confirm.js';
+
+// ── Budget sample data ─────────────────────────────────────────────────────────
+
+// One row per party+sub-category combination.
+const BUDGET_SAMPLE = [
+  { party: 'Avison Young', discipline: 'Planning', category: 'Planning', subCategory: 'Pre application',    quote: '3000',   timing: '3-5',   contingencyPct: '0', appointed: 'Yes', company: '', contact: '', invoicingDone: false, comments: '' },
+  { party: 'Avison Young', discipline: 'Planning', category: 'Planning', subCategory: 'Application',        quote: '0',      timing: '14',    contingencyPct: '0', appointed: 'Yes', company: '', contact: '', invoicingDone: false, comments: '' },
+  { party: 'Avison Young', discipline: 'Planning', category: 'Planning', subCategory: 'Planning reports',   quote: '190905', timing: '6-13',  contingencyPct: '0', appointed: 'Yes', company: '', contact: '', invoicingDone: false, comments: '' },
+  { party: 'Avison Young', discipline: 'Planning', category: 'Planning', subCategory: 'Project Management', quote: '0',      timing: '6-13',  contingencyPct: '0', appointed: 'Yes', company: '', contact: '', invoicingDone: false, comments: '' },
+  { party: 'Avison Young', discipline: 'Planning', category: 'Planning', subCategory: 'Post Application',   quote: '11493',  timing: '16-24', contingencyPct: '0', appointed: 'Yes', company: '', contact: '', invoicingDone: false, comments: '' },
+  { party: 'GVA PR',       discipline: 'PR',       category: 'Planning', subCategory: 'PR',                 quote: '34434',  timing: '14',    contingencyPct: '0', appointed: 'Yes', company: '', contact: '', invoicingDone: false, comments: '' },
+  { party: 'Nabarro LLP',  discipline: 'Legal',    category: 'Legal',    subCategory: 'Option & Lease',     quote: '102528', timing: '4-9',   contingencyPct: '0', appointed: 'Yes', company: '', contact: '', invoicingDone: false, comments: '' },
+  { party: 'Nabarro LLP',  discipline: 'Legal',    category: 'Legal',    subCategory: 'Option Fee',         quote: '56537',  timing: '9,21',  contingencyPct: '0', appointed: 'Yes', company: '', contact: '', invoicingDone: false, comments: '' },
+  { party: 'Nabarro LLP',  discipline: 'Legal',    category: 'Legal',    subCategory: 'Easement',           quote: '21238',  timing: '9-13',  contingencyPct: '0', appointed: 'Yes', company: '', contact: '', invoicingDone: false, comments: '' },
+  { party: 'AECOM',        discipline: 'Grid',     category: 'Grid',     subCategory: 'Application (G)',      quote: '37362',  timing: '1',       contingencyPct: '0', appointed: 'Yes', company: '', contact: '', invoicingDone: false, comments: '' },
+  { party: 'AECOM',        discipline: 'Grid',     category: 'Grid',     subCategory: 'Securities',           quote: '0',      timing: '4,10,16', contingencyPct: '0', appointed: 'Yes', company: '', contact: '', invoicingDone: false, comments: '' },
+  { party: 'AECOM',        discipline: 'Grid',     category: 'Grid',     subCategory: 'Post Application (G)', quote: '42494',  timing: '15',      contingencyPct: '0', appointed: 'Yes', company: '', contact: '', invoicingDone: false, comments: '' },
+];
+
+function loadBudgetSample(catId) {
+  const existing     = getPanelData().categories.find(c => c.id === catId)?.budget?.consultants || [];
+  const existingKeys = new Set(existing.map(c => `${c.category}|${c.subCategory}|${c.party}`));
+  BUDGET_SAMPLE.forEach(c => {
+    if (!existingKeys.has(`${c.category}|${c.subCategory}|${c.party}`)) addBudgetConsultant(catId, c);
+  });
+  updateCashflowSettings(catId, { numMonths: 24 });
+}
+
+// Expand state survives re-renders (consultant ids that are expanded in budget)
+const _expandedCons = new Set();
 
 const num = v => parseFloat(v) || 0;
 
@@ -892,11 +922,16 @@ function doneCheckbox(checked, onChange) {
 }
 
 function buildConsultants(catId, consultants, invoices) {
-  const rows = consultants.map(c => {
+  const cfItems    = getPanelData().categories.find(c => c.id === catId)?.budget?.cashflow?.items || [];
+  const allCatOpts = catOpts(consultants);
+
+  // Returns array of TR elements: [consultantRow, ...phaseRows, addPhaseRow]
+  const rows = consultants.flatMap(c => {
     const upd    = patch => updateBudgetConsultant(catId, c.id, patch);
+    const phases = c.phases || [];
     const budget = num(c.quote) * (1 + num(c.contingencyPct) / 100);
     const totals = getConsultantTotals(c.id, invoices);
-    const balance = budget - totals.invoiced;  // budget already includes contingency
+    const balance = budget - totals.invoiced;
 
     const hasActivity = num(c.quote) > 0 || totals.invoiced > 0;
     let balanceCls = balance < 0 ? 'bgt-over' : '';
@@ -904,15 +939,74 @@ function buildConsultants(catId, consultants, invoices) {
       balanceCls = c.invoicingDone ? 'bgt-bal-done' : 'bgt-bal-ongoing';
     }
 
-    return h('tr', null,
-      td(inp(c.party,          'Party',        v => upd({ party: v }))),
+    const rowSubCatOpts = subCatOpts(consultants, cfItems, c.category);
+
+    // ── Expand toggle ─────────────────────────────────────────────────────────
+    const isExpanded  = _expandedCons.has(c.id);
+    const expandBtn   = h('button', {
+      class: `bgt-expand-btn${phases.length ? '' : ' bgt-expand-empty'}`,
+      title: isExpanded ? 'Collapse phases' : 'Expand phases',
+    }, isExpanded ? '▼' : (phases.length ? '▶' : '＋'));
+
+    // ── Phase rows (built upfront, visibility toggled without re-render) ──────
+    const phaseEls = phases.map(p => {
+      const updP = patch => updateConsultantPhase(catId, c.id, p.id, patch);
+      const row  = h('tr', { class: 'bgt-phase-row' },
+        h('td', { class: 'bgt-phase-label-cell', colSpan: 7 },
+          h('div', { class: 'bgt-phase-indent' },
+            h('span', { class: 'bgt-phase-tree' }, '└'),
+            inp(p.label,  'Phase label…', v => updP({ label: v })),
+          ),
+        ),
+        h('td', { class: 'bgt-r' }, inp(p.amount,  '0',        v => updP({ amount: v }),  'number')),
+        h('td', null,                inp(p.timing,  'e.g. 3-5', v => updP({ timing: v }))),
+        h('td', { class: 'bgt-r bgt-auto bgt-phase-calc' }, fmt(num(p.amount))),
+        h('td', { colSpan: 6 }),
+        h('td', null, delBtn(() => deleteConsultantPhase(catId, c.id, p.id))),
+      );
+      row.style.display = isExpanded ? '' : 'none';
+      return row;
+    });
+
+    // ── "Add phase" row ───────────────────────────────────────────────────────
+    const addPhaseBtn = h('button', { class: 'bgt-add-phase-btn' }, '＋ Add phase');
+    addPhaseBtn.addEventListener('click', () =>
+      addConsultantPhase(catId, c.id, { label: '', amount: '', timing: '' }),
+    );
+    const addPhaseRow = h('tr', { class: 'bgt-phase-add-row' },
+      h('td', { colSpan: 17 }, addPhaseBtn),
+    );
+    addPhaseRow.style.display = isExpanded ? '' : 'none';
+
+    // ── Expand click handler ──────────────────────────────────────────────────
+    expandBtn.addEventListener('click', () => {
+      const nowOpen = _expandedCons.has(c.id);
+      if (nowOpen) _expandedCons.delete(c.id);
+      else         _expandedCons.add(c.id);
+      const show = !nowOpen;
+      phaseEls.forEach(r => { r.style.display = show ? '' : 'none'; });
+      addPhaseRow.style.display = show ? '' : 'none';
+      expandBtn.textContent = show ? '▼' : (phases.length ? '▶' : '＋');
+      expandBtn.title       = show ? 'Collapse phases' : 'Expand phases';
+    });
+
+    // ── Consultant row ────────────────────────────────────────────────────────
+    const consRow = h('tr', { class: `bgt-cons-row${phases.length ? ' bgt-has-phases' : ''}` },
+      h('td', null,
+        h('div', { class: 'bgt-party-cell' },
+          expandBtn,
+          inp(c.party, 'Party', v => upd({ party: v })),
+        ),
+      ),
       td(inp(c.company,        'Company',      v => upd({ company: v }))),
       td(inp(c.contact,        'Contact',      v => upd({ contact: v }))),
       td(selStr(c.appointed || '—', APPOINTED, v => upd({ appointed: v }))),
       td(inp(c.discipline,     'Discipline',   v => upd({ discipline: v }))),
-      td(inp(c.category,       'Category',     v => upd({ category: v }))),
-      td(inp(c.subCategory,    'Sub-Category', v => upd({ subCategory: v }))),
-      td(inp(c.quote,          '0', v => upd({ quote: v }),          'number'), 'bgt-r'),
+      td(catSel(c.category,    allCatOpts,     'Category',     v => upd({ category: v }))),
+      td(catSel(c.subCategory, rowSubCatOpts,  'Sub-Category', v => upd({ subCategory: v }))),
+      phases.length
+        ? calcTd(fmt(phases.reduce((s, p) => s + num(p.amount), 0)), 'bgt-phases-total')
+        : td(inp(c.quote, '0', v => upd({ quote: v }), 'number'), 'bgt-r'),
       td(inp(c.contingencyPct, '0', v => upd({ contingencyPct: v }), 'number'), 'bgt-r'),
       calcTd(fmt(budget)),
       calcTd(fmt(totals.accounts)),
@@ -923,6 +1017,8 @@ function buildConsultants(catId, consultants, invoices) {
       td(inp(c.comments, 'Notes', v => upd({ comments: v }))),
       td(delBtn(() => deleteBudgetConsultant(catId, c.id)), 'bgt-del-cell'),
     );
+
+    return [consRow, ...phaseEls, addPhaseRow];
   });
 
   const addBtn = h('button', { class: 'bgt-add-btn' }, '+ Add consultant');
@@ -1030,6 +1126,90 @@ function bibleField(catId, ...labels) {
   return '';
 }
 
+// ── Category / sub-category select dropdowns ─────────────────────────────────
+
+/**
+ * A <select> dropdown for category/sub-category.
+ * Includes all known options plus a "＋ Add new…" sentinel that temporarily
+ * swaps the select for a text input, then adds the typed value to the list.
+ *
+ * @param {string}   val         Current value
+ * @param {string[]} knownOpts   Array of existing option strings
+ * @param {string}   placeholder Label shown in the blank option
+ * @param {Function} onChange    Called with the new string value
+ */
+function catSel(val, knownOpts, placeholder, onChange) {
+  // Dedupe and preserve the current value even if it's not in the known list
+  const opts = [...new Set(knownOpts.filter(Boolean))];
+  if (val && !opts.includes(val)) opts.unshift(val);
+
+  // Wrapper keeps the same DOM node when we swap select ↔ input
+  const wrap = h('div', { class: 'bgt-cat-wrap' });
+
+  function buildSel(current) {
+    const sel = h('select', { class: 'bgt-inp bgt-cat-sel' });
+    sel.appendChild(h('option', { value: '' }, `— ${placeholder} —`));
+    opts.forEach(o => {
+      const opt = h('option', { value: o }, o);
+      if (o === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    sel.appendChild(h('option', { value: '__new__', class: 'bgt-cat-new-opt' }, '＋ Add new…'));
+    if (!current) sel.value = '';
+
+    sel.addEventListener('change', e => {
+      if (e.target.value === '__new__') {
+        // Swap select → text input
+        const ti = h('input', { class: 'bgt-inp bgt-cat-new-inp', placeholder: `New ${placeholder}…` });
+        wrap.replaceChildren(ti);
+        ti.focus();
+        const commit = () => {
+          const v = ti.value.trim();
+          if (v && !opts.includes(v)) opts.push(v);
+          wrap.replaceChildren(buildSel(v || current));
+          if (v) onChange(v);
+        };
+        ti.addEventListener('blur', commit);
+        ti.addEventListener('keydown', ke => {
+          if (ke.key === 'Enter')  { ke.preventDefault(); ti.blur(); }
+          if (ke.key === 'Escape') { wrap.replaceChildren(buildSel(current)); }
+        });
+      } else {
+        onChange(e.target.value);
+      }
+    });
+    return sel;
+  }
+
+  wrap.appendChild(buildSel(val || ''));
+  return wrap;
+}
+
+/** Derives the unique category list from consultants. */
+function catOpts(consultants) {
+  return [...new Set(consultants.map(c => c.category).filter(Boolean))];
+}
+
+/**
+ * Derives sub-category options from:
+ *  1. Existing subCategory values on consultants
+ *  2. Cashflow item labels that belong to `filterCat` (if supplied)
+ * This pre-populates the dropdown with the line-item names visible in the cashflow view.
+ */
+function subCatOpts(consultants, cfItems, filterCat) {
+  const fromConsultants = consultants
+    .filter(c => !filterCat || c.category === filterCat)
+    .map(c => c.subCategory)
+    .filter(Boolean);
+
+  const fromCashflow = (cfItems || [])
+    .filter(i => !filterCat || i.category === filterCat)
+    .map(i => i.label)
+    .filter(Boolean);
+
+  return [...new Set([...fromConsultants, ...fromCashflow])];
+}
+
 // ── Party datalist — suggests from budget consultants, autofills on match ─────
 function partyCell(inv, consultants, catId) {
   const listId = `bgt-pl-${catId}`;
@@ -1109,6 +1289,8 @@ function clearSelectionIfNeeded(catId) {
 function buildInvoiceTable(catId, invoices, consultants, onSelectionChange) {
   clearSelectionIfNeeded(catId);
   ensurePartyDatalist(catId, consultants);
+  const cfItems    = getPanelData().categories.find(c => c.id === catId)?.budget?.cashflow?.items || [];
+  const allCatOpts = catOpts(consultants);
 
   const allIds = invoices.map(i => i.id);
 
@@ -1146,6 +1328,9 @@ function buildInvoiceTable(catId, invoices, consultants, onSelectionChange) {
       onSelectionChange?.();
     });
 
+    // Sub-cat options filtered to this invoice's category
+    const invSubCatOpts = subCatOpts(consultants, cfItems, inv.category);
+
     const row = h('tr', null,
       td(rowChk, 'bgt-sel-cell'),
       td(partyCell(inv, consultants, catId)),
@@ -1155,8 +1340,8 @@ function buildInvoiceTable(catId, invoices, consultants, onSelectionChange) {
       td(inp(inv.spvName,       'SPV Name',     v => upd({ spvName: v }))),
       td(selStr(inv.documentType || 'Invoice', DOC_TYPES, v => upd({ documentType: v }))),
       td(inp(inv.discipline,    'Discipline',   v => upd({ discipline: v }))),
-      td(inp(inv.category,      'Category',     v => upd({ category: v }))),
-      td(inp(inv.subCategory,   'Sub-Category', v => upd({ subCategory: v }))),
+      td(catSel(inv.category,    allCatOpts,    'Category',     v => upd({ category: v }))),
+      td(catSel(inv.subCategory, invSubCatOpts, 'Sub-Category', v => upd({ subCategory: v }))),
       td(inp(inv.invoiceDate,   '',             v => upd({ invoiceDate: v }),  'date')),
       td(inp(inv.invoiceNumber, 'Inv #',        v => upd({ invoiceNumber: v }))),
       td(inp(inv.dueDate,       '',             v => upd({ dueDate: v }),      'date')),
@@ -1302,6 +1487,19 @@ export function buildBudgetView(catId) {
     buildExcelImportBtn(catId),
     consCsvBtn,
   ));
+
+  // Show "Load sample data" banner when budget is empty
+  if (!budget.consultants.length) {
+    const sampleBtn = h('button', { class: 'cf-sample-btn' }, '↓ Load sample data');
+    sampleBtn.addEventListener('click', () => loadBudgetSample(catId));
+    const banner = h('div', { class: 'cf-empty-banner' },
+      h('div', { class: 'cf-empty-title' }, 'No consultants yet'),
+      h('div', { class: 'cf-empty-sub' }, 'Add consultants manually, import via CSV/Excel, or load sample data to explore.'),
+      sampleBtn,
+    );
+    frag.appendChild(banner);
+  }
+
   const pivot = buildPivot(budget.consultants, budget.invoices);
   if (pivot) frag.appendChild(pivot);
   frag.appendChild(consBlock);

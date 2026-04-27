@@ -13,6 +13,7 @@ import { renderSections } from './components/card.js';
 import { buildCalendarView } from './components/calendarView.js';
 import { buildBibleView } from './components/bibleView.js';
 import { buildBudgetView, buildInvoicesView } from './components/budgetView.js';
+import { buildCashflowView } from './components/cashflowView.js';
 
 // ── Search focus restoration ──────────────────────────────────────────────────
 // Saved across renders so typing into the search bar doesn't lose the caret.
@@ -178,9 +179,10 @@ function buildPanelHeader() {
       ...(hasBible  ? ['bible']    : []),
       ...(hasBudget ? ['budget']   : []),
       ...(hasBudget ? ['invoices'] : []),
+      ...(hasBudget ? ['cashflow'] : []),
     ];
 
-    const tabLabels = { tasks: 'Tasks', bible: 'Project Bible', budget: 'Budget', invoices: 'Invoices' };
+    const tabLabels = { tasks: 'Tasks', bible: 'Project Bible', budget: 'Budget', invoices: 'Invoices', cashflow: 'Cashflow' };
     const tabRow = h('div', { class: 'cat-tab-row' },
       ...tabs.map(t =>
         h('button', {
@@ -600,9 +602,10 @@ function buildDashboard() {
 // ── Category view content ─────────────────────────────────────────────────────
 
 function buildCategoryView() {
-  if (S.catTab === 'bible')    return [buildBibleView(S.activeCat)];
-  if (S.catTab === 'budget')   return [buildBudgetView(S.activeCat)];
-  if (S.catTab === 'invoices') return [buildInvoicesView(S.activeCat)];
+  if (S.catTab === 'bible')     return [buildBibleView(S.activeCat)];
+  if (S.catTab === 'budget')    return [buildBudgetView(S.activeCat)];
+  if (S.catTab === 'invoices')  return [buildInvoicesView(S.activeCat)];
+  if (S.catTab === 'cashflow')  return [buildCashflowView(S.activeCat)];
 
   const items = getFilteredItems();
   if (!items.length) return [h('div', { class: 'empty-state' }, 'No items here')];

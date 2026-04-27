@@ -1439,6 +1439,12 @@ body.light .bgt-auto-hdr { color: var(--primary) !important; }
 }
 .bgt-inp:hover { background: var(--hover); border-radius: 3px; }
 .bgt-inp:focus { outline: none; background: var(--hover); border-radius: 3px; }
+
+/* Category / sub-category select wrapper */
+.bgt-cat-wrap { display: contents; }
+.bgt-cat-sel  { cursor: pointer; }
+.bgt-cat-new-inp { min-width: 90px; }
+.bgt-cat-new-opt { color: var(--primary); font-style: italic; }
 .bgt-inp[type="number"] { text-align: right; min-width: 72px; }
 .bgt-inp[type="date"] { min-width: 120px; color-scheme: dark; }
 body.light .bgt-inp[type="date"] { color-scheme: light; }
@@ -1558,3 +1564,627 @@ body.light .bgt-inp[type="date"] { color-scheme: light; }
 
 .bgt-pivot { max-width: 580px; }
 .bgt-pivot tbody tr:hover td { background: var(--hover); }
+
+/* ── Cashflow view ────────────────────────────────────────────────────────── */
+
+.cf-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.cf-settings-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0 14px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border2);
+  margin-bottom: 0;
+}
+.cf-setting-label {
+  font-size: 12px;
+  color: var(--text3);
+  white-space: nowrap;
+}
+.cf-setting-inp,
+.cf-setting-sel {
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--border2);
+  border-radius: 5px;
+  background: var(--surface3);
+  color: var(--text);
+  height: 28px;
+}
+.cf-setting-inp:focus,
+.cf-setting-sel:focus { outline: none; border-color: var(--primary); }
+
+/* Scrollable table wrapper — sticky left columns handled by position:sticky */
+.cf-scroll {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+.cf-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  white-space: nowrap;
+  font-size: 12px;
+  table-layout: fixed;
+  min-width: max-content;
+}
+
+/* ── Header ── */
+.cf-th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--surface);
+  border-bottom: 2px solid var(--border2);
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.cf-th-name   { position: sticky; left: 0; z-index: 4; width: 180px; text-align: left; }
+.cf-th-amt    { position: sticky; left: 180px; z-index: 4; width: 110px; text-align: right; }
+.cf-th-timing { position: sticky; left: 290px; z-index: 4; width: 80px;  text-align: center; }
+.cf-th-month  { width: 58px; text-align: right; min-width: 52px; }
+.cf-th-near   { background: var(--surface2); }
+
+/* ── Category header rows ── */
+.cf-cat-row td {
+  padding: 8px 8px 4px;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--text);
+  border-top: 2px solid var(--border2);
+  background: var(--surface2);
+}
+.cf-cat-name   { position: sticky; left: 0;   z-index: 2; background: var(--surface2); width: 180px; }
+.cf-cat-amt    { position: sticky; left: 180px; z-index: 2; background: var(--surface2); width: 110px; text-align: right; }
+.cf-cat-timing { position: sticky; left: 290px; z-index: 2; background: var(--surface2); width: 80px; text-align: center; }
+.cf-cat-month  { text-align: right; font-size: 12px; color: var(--text2); padding: 8px 8px 4px; }
+
+.cf-cons-budget {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text3);
+  white-space: nowrap;
+}
+
+/* ── Sub-item rows ── */
+.cf-item-row td {
+  padding: 3px 4px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--border);
+}
+.cf-item-row:hover .cf-item-name,
+.cf-item-row:hover .cf-item-amt,
+.cf-item-row:hover .cf-item-timing { background: var(--hover); }
+
+.cf-item-name   { position: sticky; left: 0;   z-index: 2; background: var(--surface); width: 180px; }
+.cf-item-amt    { position: sticky; left: 180px; z-index: 2; background: var(--surface); width: 110px; text-align: right; }
+.cf-item-timing { position: sticky; left: 290px; z-index: 2; background: var(--surface); width: 80px; text-align: center; }
+
+/* Inputs inside cells */
+.cf-inp {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  width: 100%;
+  padding: 2px 4px;
+}
+.cf-inp:focus {
+  background: var(--surface3);
+  border-radius: 3px;
+  outline: 1px solid var(--primary);
+}
+.cf-inp-lbl    { font-size: 12px; }
+.cf-inp-amt    { text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+.cf-inp-timing {
+  font-size: 11px;
+  text-align: center;
+  width: 72px;
+  padding: 2px 4px;
+  border: 1px solid var(--border2);
+  border-radius: 3px;
+  background: var(--surface3);
+  color: var(--text);
+}
+
+/* Party / label two-line stack in description cell */
+.cf-name-stack   { display: flex; flex-direction: column; gap: 0; min-width: 0; }
+.cf-name-lbl     { display: flex; align-items: center; min-width: 0; }
+.cf-name-party   { min-width: 0; }
+.cf-inp-party    { font-size: 11px; color: var(--text3); font-style: italic; }
+.cf-inp-party::placeholder { color: var(--text4); }
+.cf-inp-party:focus { color: var(--text); font-style: normal; }
+.cf-timing-val {
+  font-size: 11px;
+  color: var(--text2);
+  cursor: text;
+  padding: 2px 4px;
+  border-radius: 3px;
+  display: inline-block;
+  min-width: 40px;
+  text-align: center;
+}
+.cf-timing-val:hover { background: var(--surface3); color: var(--text); }
+
+.cf-del {
+  background: none;
+  border: none;
+  color: var(--text4);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s;
+  vertical-align: middle;
+  margin-left: 2px;
+}
+.cf-item-row:hover .cf-del { opacity: 1; }
+.cf-del:hover { color: var(--error); }
+
+/* ── Monthly cells ── */
+.cf-cell {
+  text-align: right;
+  padding: 3px 6px;
+  font-size: 11px;
+  color: var(--text3);
+  border-right: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  transition: filter 0.05s;
+}
+.cf-active {
+  color: #000 !important;
+  font-weight: 600;
+  font-size: 11px;
+  border-right: 1px solid transparent;
+  cursor: grab;
+}
+.cf-active:active { cursor: grabbing; }
+.cf-last-month { border-right: 3px solid transparent; }
+.cf-inactive { opacity: 0.35; }
+
+
+/* ── Add row ── */
+.cf-add-row td { padding: 2px 0 4px; }
+.cf-add-btn {
+  background: none;
+  border: none;
+  color: var(--text4);
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.cf-add-btn:hover { background: var(--surface3); color: var(--text2); }
+
+/* ── Total row ── */
+.cf-total-row td {
+  padding: 6px 8px;
+  border-top: 2px solid var(--border2);
+  font-weight: 700;
+  font-size: 12px;
+  background: var(--surface2);
+}
+.cf-total-lbl  { position: sticky; left: 0;   z-index: 2; background: var(--surface2); }
+.cf-total-amt  { position: sticky; left: 180px; z-index: 2; background: var(--surface2); text-align: right; }
+.cf-total-cell { text-align: right; color: var(--text2); font-variant-numeric: tabular-nums; }
+
+/* ── Cumulative row ── */
+.cf-cum-row td {
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text3);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.cf-cum-lbl  { position: sticky; left: 0; z-index: 2; background: var(--surface); font-weight: 600; color: var(--text2); }
+.cf-cum-cell { text-align: right; }
+
+/* ── Column selection highlight ── */
+.cf-th-sel {
+  background: var(--primary) !important;
+  color: var(--primary-text, #fff) !important;
+}
+.cf-col-sel {
+  background: color-mix(in srgb, var(--primary) 10%, transparent) !important;
+  outline: none;
+}
+/* Preserve active cell colours when column is selected */
+.cf-active.cf-col-sel {
+  filter: brightness(0.92);
+}
+
+/* ── Month detail panel ── */
+.cf-detail-panel {
+  flex-shrink: 0;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 7px;
+  margin: 8px 0 4px;
+  overflow: hidden;
+}
+.cf-dp-hdr {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface3);
+}
+.cf-dp-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+.cf-dp-count {
+  font-size: 11px;
+  color: var(--text3);
+  white-space: nowrap;
+}
+.cf-dp-total {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
+  margin-left: 4px;
+}
+.cf-dp-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: var(--text3);
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+.cf-dp-close:hover { color: var(--text); }
+.cf-dp-empty {
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--text3);
+}
+.cf-dp-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  padding: 8px 8px 6px;
+}
+.cf-dp-section {
+  min-width: 160px;
+  flex: 0 0 auto;
+  padding: 4px 8px 6px;
+  border-right: 1px solid var(--border);
+}
+.cf-dp-section:last-child { border-right: none; }
+.cf-dp-cat {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 4px;
+}
+.cf-dp-cat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.cf-dp-cat-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  flex: 1;
+}
+.cf-dp-cat-total {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text2);
+  white-space: nowrap;
+}
+.cf-dp-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 1px 0 1px 13px;
+  font-size: 11px;
+}
+.cf-dp-item-name { color: var(--text2); flex: 1; }
+.cf-dp-item-amt  { color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Settings bar extras */
+.cf-settings-spacer { flex: 1; }
+
+.cf-detail-toggle {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 5px;
+  border: 1px solid var(--border2);
+  background: none;
+  color: var(--text3);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cf-detail-toggle:hover  { border-color: var(--primary); color: var(--primary); }
+.cf-detail-toggle.active { background: var(--primary); color: var(--primary-text, #fff); border-color: var(--primary); }
+
+.cf-setting-clear {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--border2);
+  background: none;
+  color: var(--text3);
+  cursor: pointer;
+}
+.cf-setting-clear:hover { border-color: var(--error); color: var(--error); }
+
+/* Empty state banner */
+.cf-empty-banner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 20px 22px;
+  margin: 16px 0 0;
+  background: var(--surface2);
+  border: 1px dashed var(--border2);
+  border-radius: 8px;
+  text-align: center;
+}
+.cf-empty-title { font-size: 14px; font-weight: 600; color: var(--text2); }
+.cf-empty-sub   { font-size: 12px; color: var(--text3); max-width: 420px; line-height: 1.5; }
+.cf-sample-btn  {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 18px;
+  border-radius: 6px;
+  border: none;
+  background: var(--primary);
+  color: var(--primary-text, #fff);
+  cursor: pointer;
+  letter-spacing: 0.01em;
+}
+.cf-sample-btn:hover { opacity: 0.88; }
+
+/* ── Sub-category rows ── */
+.cf-subcat-row {
+  background: var(--surface3);
+}
+
+/* ── Consultant label row (between sub-cat heading and phase bars) ── */
+.cf-cons-lbl-row {
+  background: var(--surface2);
+}
+.cf-cons-lbl-name {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--surface2);
+  padding: 3px 10px 3px 36px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text1);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
+}
+.cf-subcat-name {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
+  background: var(--surface3);
+  padding: 4px 10px 4px 24px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cf-subcat-amt {
+  position: sticky;
+  left: 180px;
+  z-index: 2;
+  width: 110px;
+  min-width: 110px;
+  background: var(--surface3);
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text2);
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.cf-subcat-timing {
+  position: sticky;
+  left: 290px;
+  z-index: 2;
+  width: 80px;
+  min-width: 80px;
+  background: var(--surface3);
+  border-bottom: 1px solid var(--border);
+}
+.cf-subcat-month {
+  width: 58px;
+  min-width: 58px;
+  font-size: 10px;
+  text-align: right;
+  padding: 3px 5px;
+  color: var(--text3);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+/* ── Gantt / Party timeline rows ── */
+.cf-gantt-row {
+  background: var(--surface2);
+}
+.cf-gantt-row:hover {
+  background: var(--surface3);
+}
+.cf-gantt-name {
+  /* Inherits sticky positioning from cf-item-name */
+  background: var(--surface2) !important;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+}
+.cf-gantt-row:hover .cf-gantt-name {
+  background: var(--surface3) !important;
+}
+.cf-gantt-cell {
+  /* Active Gantt bar cell — bar appearance handled by inline bg/border */
+  border-top: none;
+  border-bottom: none;
+  border-left: none;
+  border-right: 1px solid transparent;
+  padding: 2px 0;
+  position: relative;
+  overflow: visible;
+}
+/* First active cell in bar gets a left-border start cap */
+.cf-gantt-row .cf-active:not(.cf-gantt-cell + .cf-active) {
+  border-left: 2px solid;
+}
+/* Last active cell in bar */
+.cf-gantt-cell.cf-last-month {
+  border-right-width: 2px;
+}
+
+/* ── Budget phase rows ── */
+.bgt-party-cell { display: flex; align-items: center; gap: 2px; }
+.bgt-expand-btn {
+  flex-shrink: 0;
+  background: transparent; border: none;
+  color: var(--text3); font-size: 10px;
+  padding: 2px 3px; border-radius: 3px;
+  cursor: pointer; line-height: 1;
+}
+.bgt-expand-btn:hover { color: var(--text); background: var(--hover); }
+.bgt-expand-empty { opacity: 0.4; }
+
+.bgt-phase-row td { background: var(--surface3); border-bottom: 1px solid var(--border); }
+.bgt-phase-label-cell { padding: 0; }
+.bgt-phase-indent { display: flex; align-items: center; gap: 4px; padding-left: 10px; }
+.bgt-phase-tree { color: var(--text4); font-size: 12px; flex-shrink: 0; }
+.bgt-phase-indent .bgt-inp { flex: 1; font-size: 12px; font-style: italic; color: var(--text2); }
+.bgt-phase-calc { font-size: 12px; color: var(--text3); }
+.bgt-phase-add-row td { padding: 2px 8px; background: var(--surface3); border-bottom: 1px solid var(--border); }
+.bgt-add-phase-btn {
+  background: transparent; border: 1px dashed var(--border2);
+  color: var(--text3); font-size: 11px;
+  padding: 2px 8px; border-radius: 3px; cursor: pointer;
+}
+.bgt-add-phase-btn:hover { color: var(--primary); border-color: var(--primary); }
+.bgt-has-phases .bgt-party-cell .bgt-inp { font-weight: 600; }
+/* Auto-summed quote cell — styled like other calculated columns but with a hint */
+.bgt-phases-total { color: var(--text2); font-style: italic; }
+.bgt-phases-total::after { content: ' ∑'; font-size: 10px; color: var(--text4); }
+
+/* ── Cashflow phase rows (numbers view) ── */
+.cf-cons-parent-row { background: var(--surface2); }
+.cf-cons-parent-row .cf-item-name { font-weight: 600; }
+.cf-parent-lbl { display: flex; align-items: center; gap: 4px; font-weight: 600; }
+.cf-expand-btn {
+  flex-shrink: 0;
+  background: transparent; border: none;
+  color: var(--text3); font-size: 10px;
+  padding: 1px 3px; border-radius: 3px; cursor: pointer; line-height: 1;
+}
+.cf-expand-btn:hover { color: var(--text); background: var(--hover); }
+.cf-parent-month { opacity: 0.55; }
+.cf-phase-row { background: var(--surface3); }
+.cf-phase-name-wrap { display: flex; align-items: center; gap: 4px; padding-left: 10px; }
+.cf-phase-tree { color: var(--text4); font-size: 12px; flex-shrink: 0; }
+.cf-phase-lbl { font-size: 12px; color: var(--text2); font-style: italic; }
+
+/* ── Cashflow phase rows (gantt view) ── */
+.cf-gantt-parent-row .cf-gantt-name { font-weight: 600; }
+.cf-gantt-parent-name { font-weight: 600; font-size: 12px; color: var(--text); }
+.cf-gantt-phase-row { background: var(--surface3); }
+.cf-gantt-phase-name { padding-left: 0 !important; }
+
+/* Read-only budget amount in cashflow numbers view */
+.cf-item-amt-ro {
+  color: var(--text2);
+  font-size: 12px;
+  cursor: default;
+}
+
+/* Unset-timing placeholder cell in Gantt */
+.cf-gantt-unset {
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 4px,
+    rgba(255,255,255,0.03) 4px,
+    rgba(255,255,255,0.03) 8px
+  );
+}
+.cf-gantt-unset-hint {
+  font-size: 10px;
+  color: var(--text4);
+  white-space: nowrap;
+  font-style: italic;
+}
+
+/* ── Sub-category drag-to-reorder ── */
+.cf-sc-drag-handle {
+  display: inline-block;
+  margin-right: 5px;
+  color: var(--text4, #bbb);
+  font-size: 13px;
+  cursor: grab;
+  user-select: none;
+  opacity: 0.5;
+  vertical-align: middle;
+  line-height: 1;
+}
+.cf-subcat-row:hover .cf-sc-drag-handle { opacity: 1; }
+.cf-sc-dragging { opacity: 0.35; }
+.cf-sc-drag-over {
+  box-shadow: inset 0 -3px 0 0 #3B82F6;
+}
+
+/* Party name label shown inside first bar cell */
+.cf-gantt-label {
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  transform: translateY(-50%);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1;
+  /* colour set by catColour text value via inline style on parent or inherited */
+  color: inherit;
+  opacity: 0.85;
+  max-width: none;
+  overflow: visible;
+}

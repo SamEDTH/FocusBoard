@@ -20410,8 +20410,8 @@ ${suffix}`;
   if (shouldShowDeprecationWarning()) console.warn("\u26A0\uFE0F  Node.js 18 and below are deprecated and will no longer be supported in future versions of @supabase/supabase-js. Please upgrade to Node.js 20 or later. For more information, visit: https://github.com/orgs/supabase/discussions/37217");
 
   // src/js/services/supabase.js
-  var SUPABASE_URL = "" ? "" : "";
-  var SUPABASE_KEY = "" ? "" : "";
+  var SUPABASE_URL = typeof __SUPABASE_URL__ !== "undefined" && __SUPABASE_URL__ ? __SUPABASE_URL__ : "";
+  var SUPABASE_KEY = typeof __SUPABASE_ANON_KEY__ !== "undefined" && __SUPABASE_ANON_KEY__ ? __SUPABASE_ANON_KEY__ : "";
   var supabase = SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPABASE_KEY) : null;
   var isSupabaseConfigured = () => !!supabase;
   async function signInWithGoogle() {
@@ -21076,7 +21076,7 @@ ${suffix}`;
     dashTab: "all",
     // 'all' | 'today' | 'week'
     catTab: _savedNav?.catTab || "tasks",
-    // 'tasks' | 'bible' | 'budget' | 'invoices'
+    // 'tasks' | 'bible' | 'budget' | 'invoices' | 'cashflow'
     focusBuffer: savedSettings.focusBuffer ?? 15,
     focusMinBlock: savedSettings.focusMinBlock ?? 30,
     followUpDays: savedSettings.followUpDays ?? 5,
@@ -21671,8 +21671,14 @@ ${suffix}`;
   function addBudgetConsultant(catId, data) {
     const newData = JSON.parse(JSON.stringify(S.data));
     const cat = newData[S.panel].categories.find((c) => c.id === catId);
-    if (!cat?.budget) return;
-    cat.budget.consultants = [...cat.budget.consultants, { id: uid(), ...data }];
+    if (!cat) return;
+    if (!cat.budget) cat.budget = { consultants: [], invoices: [] };
+    const cons = { id: uid(), ...data };
+    if (cons.phases?.length) {
+      cons.phases = cons.phases.map((p) => ({ id: uid(), ...p }));
+      syncPhaseTotal(cons);
+    }
+    cat.budget.consultants = [...cat.budget.consultants, cons];
     upd(newData);
   }
   function updateBudgetConsultant(catId, consultantId, patch) {
@@ -21732,6 +21738,57 @@ ${suffix}`;
     const cat = newData[S.panel].categories.find((c) => c.id === catId);
     if (!cat?.budget) return;
     cat.budget.invoices = [];
+    upd(newData);
+  }
+  function updateCashflowSettings(catId, patch) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat?.budget) return;
+    if (!cat.budget.cashflow) cat.budget.cashflow = {};
+    Object.assign(cat.budget.cashflow, patch);
+    upd(newData);
+  }
+  function updateSubCategoryOrder(catId, categoryName, orderedSubCats) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat) return;
+    if (!cat.budget) cat.budget = { consultants: [], invoices: [] };
+    if (!cat.budget.subCategoryOrder) cat.budget.subCategoryOrder = {};
+    cat.budget.subCategoryOrder[categoryName] = orderedSubCats;
+    upd(newData);
+  }
+  function syncPhaseTotal(cons) {
+    if (!cons.phases?.length) return;
+    const sum = cons.phases.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+    cons.quote = String(sum);
+  }
+  function addConsultantPhase(catId, consId, data) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    const cons = cat?.budget?.consultants?.find((c) => c.id === consId);
+    if (!cons) return;
+    if (!cons.phases) cons.phases = [];
+    cons.phases.push({ id: uid(), ...data });
+    syncPhaseTotal(cons);
+    upd(newData);
+  }
+  function updateConsultantPhase(catId, consId, phaseId, patch) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    const cons = cat?.budget?.consultants?.find((c) => c.id === consId);
+    if (!cons?.phases) return;
+    const idx = cons.phases.findIndex((p) => p.id === phaseId);
+    if (idx >= 0) Object.assign(cons.phases[idx], patch);
+    syncPhaseTotal(cons);
+    upd(newData);
+  }
+  function deleteConsultantPhase(catId, consId, phaseId) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    const cons = cat?.budget?.consultants?.find((c) => c.id === consId);
+    if (!cons?.phases) return;
+    cons.phases = cons.phases.filter((p) => p.id !== phaseId);
+    syncPhaseTotal(cons);
     upd(newData);
   }
 
@@ -21935,7 +21992,7 @@ ${suffix}`;
   }
 
   // src/js/components/passwordGate.js
-  var REQUIRED_HASH = "" ? "" : null;
+  var REQUIRED_HASH = typeof __PASSWORD_HASH__ !== "undefined" && __PASSWORD_HASH__ ? __PASSWORD_HASH__ : null;
   var AUTH_KEY = "focusboard-auth";
   function isPasswordProtected() {
     return !!REQUIRED_HASH;
@@ -24888,6 +24945,29 @@ ${suffix}`;
   }
 
   // src/js/components/budgetView.js
+  var BUDGET_SAMPLE = [
+    { party: "Avison Young", discipline: "Planning", category: "Planning", subCategory: "Pre application", quote: "3000", timing: "3-5", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "Avison Young", discipline: "Planning", category: "Planning", subCategory: "Application", quote: "0", timing: "14", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "Avison Young", discipline: "Planning", category: "Planning", subCategory: "Planning reports", quote: "190905", timing: "6-13", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "Avison Young", discipline: "Planning", category: "Planning", subCategory: "Project Management", quote: "0", timing: "6-13", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "Avison Young", discipline: "Planning", category: "Planning", subCategory: "Post Application", quote: "11493", timing: "16-24", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "GVA PR", discipline: "PR", category: "Planning", subCategory: "PR", quote: "34434", timing: "14", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "Nabarro LLP", discipline: "Legal", category: "Legal", subCategory: "Option & Lease", quote: "102528", timing: "4-9", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "Nabarro LLP", discipline: "Legal", category: "Legal", subCategory: "Option Fee", quote: "56537", timing: "9,21", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "Nabarro LLP", discipline: "Legal", category: "Legal", subCategory: "Easement", quote: "21238", timing: "9-13", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "AECOM", discipline: "Grid", category: "Grid", subCategory: "Application (G)", quote: "37362", timing: "1", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "AECOM", discipline: "Grid", category: "Grid", subCategory: "Securities", quote: "0", timing: "4,10,16", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "AECOM", discipline: "Grid", category: "Grid", subCategory: "Post Application (G)", quote: "42494", timing: "15", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" }
+  ];
+  function loadBudgetSample(catId) {
+    const existing = getPanelData().categories.find((c) => c.id === catId)?.budget?.consultants || [];
+    const existingKeys = new Set(existing.map((c) => `${c.category}|${c.subCategory}|${c.party}`));
+    BUDGET_SAMPLE.forEach((c) => {
+      if (!existingKeys.has(`${c.category}|${c.subCategory}|${c.party}`)) addBudgetConsultant(catId, c);
+    });
+    updateCashflowSettings(catId, { numMonths: 24 });
+  }
+  var _expandedCons = /* @__PURE__ */ new Set();
   var num = (v) => parseFloat(v) || 0;
   function addColHighlight(table) {
     let lastCol = -1;
@@ -25664,8 +25744,11 @@ ${err.message}`);
     return el;
   }
   function buildConsultants(catId, consultants, invoices) {
-    const rows = consultants.map((c) => {
+    const cfItems = getPanelData().categories.find((c) => c.id === catId)?.budget?.cashflow?.items || [];
+    const allCatOpts = catOpts(consultants);
+    const rows = consultants.flatMap((c) => {
       const upd2 = (patch) => updateBudgetConsultant(catId, c.id, patch);
+      const phases = c.phases || [];
       const budget = num(c.quote) * (1 + num(c.contingencyPct) / 100);
       const totals = getConsultantTotals(c.id, invoices);
       const balance = budget - totals.invoiced;
@@ -25674,17 +25757,79 @@ ${err.message}`);
       if (balance >= 0 && hasActivity) {
         balanceCls = c.invoicingDone ? "bgt-bal-done" : "bgt-bal-ongoing";
       }
-      return h(
+      const rowSubCatOpts = subCatOpts(consultants, cfItems, c.category);
+      const isExpanded = _expandedCons.has(c.id);
+      const expandBtn = h("button", {
+        class: `bgt-expand-btn${phases.length ? "" : " bgt-expand-empty"}`,
+        title: isExpanded ? "Collapse phases" : "Expand phases"
+      }, isExpanded ? "\u25BC" : phases.length ? "\u25B6" : "\uFF0B");
+      const phaseEls = phases.map((p) => {
+        const updP = (patch) => updateConsultantPhase(catId, c.id, p.id, patch);
+        const row = h(
+          "tr",
+          { class: "bgt-phase-row" },
+          h(
+            "td",
+            { class: "bgt-phase-label-cell", colSpan: 7 },
+            h(
+              "div",
+              { class: "bgt-phase-indent" },
+              h("span", { class: "bgt-phase-tree" }, "\u2514"),
+              inp(p.label, "Phase label\u2026", (v) => updP({ label: v }))
+            )
+          ),
+          h("td", { class: "bgt-r" }, inp(p.amount, "0", (v) => updP({ amount: v }), "number")),
+          h("td", null, inp(p.timing, "e.g. 3-5", (v) => updP({ timing: v }))),
+          h("td", { class: "bgt-r bgt-auto bgt-phase-calc" }, fmt3(num(p.amount))),
+          h("td", { colSpan: 6 }),
+          h("td", null, delBtn(() => deleteConsultantPhase(catId, c.id, p.id)))
+        );
+        row.style.display = isExpanded ? "" : "none";
+        return row;
+      });
+      const addPhaseBtn = h("button", { class: "bgt-add-phase-btn" }, "\uFF0B Add phase");
+      addPhaseBtn.addEventListener(
+        "click",
+        () => addConsultantPhase(catId, c.id, { label: "", amount: "", timing: "" })
+      );
+      const addPhaseRow = h(
         "tr",
-        null,
-        td(inp(c.party, "Party", (v) => upd2({ party: v }))),
+        { class: "bgt-phase-add-row" },
+        h("td", { colSpan: 17 }, addPhaseBtn)
+      );
+      addPhaseRow.style.display = isExpanded ? "" : "none";
+      expandBtn.addEventListener("click", () => {
+        const nowOpen = _expandedCons.has(c.id);
+        if (nowOpen) _expandedCons.delete(c.id);
+        else _expandedCons.add(c.id);
+        const show = !nowOpen;
+        phaseEls.forEach((r) => {
+          r.style.display = show ? "" : "none";
+        });
+        addPhaseRow.style.display = show ? "" : "none";
+        expandBtn.textContent = show ? "\u25BC" : phases.length ? "\u25B6" : "\uFF0B";
+        expandBtn.title = show ? "Collapse phases" : "Expand phases";
+      });
+      const consRow = h(
+        "tr",
+        { class: `bgt-cons-row${phases.length ? " bgt-has-phases" : ""}` },
+        h(
+          "td",
+          null,
+          h(
+            "div",
+            { class: "bgt-party-cell" },
+            expandBtn,
+            inp(c.party, "Party", (v) => upd2({ party: v }))
+          )
+        ),
         td(inp(c.company, "Company", (v) => upd2({ company: v }))),
         td(inp(c.contact, "Contact", (v) => upd2({ contact: v }))),
         td(selStr(c.appointed || "\u2014", APPOINTED, (v) => upd2({ appointed: v }))),
         td(inp(c.discipline, "Discipline", (v) => upd2({ discipline: v }))),
-        td(inp(c.category, "Category", (v) => upd2({ category: v }))),
-        td(inp(c.subCategory, "Sub-Category", (v) => upd2({ subCategory: v }))),
-        td(inp(c.quote, "0", (v) => upd2({ quote: v }), "number"), "bgt-r"),
+        td(catSel(c.category, allCatOpts, "Category", (v) => upd2({ category: v }))),
+        td(catSel(c.subCategory, rowSubCatOpts, "Sub-Category", (v) => upd2({ subCategory: v }))),
+        phases.length ? calcTd(fmt3(phases.reduce((s, p) => s + num(p.amount), 0)), "bgt-phases-total") : td(inp(c.quote, "0", (v) => upd2({ quote: v }), "number"), "bgt-r"),
         td(inp(c.contingencyPct, "0", (v) => upd2({ contingencyPct: v }), "number"), "bgt-r"),
         calcTd(fmt3(budget)),
         calcTd(fmt3(totals.accounts)),
@@ -25695,6 +25840,7 @@ ${err.message}`);
         td(inp(c.comments, "Notes", (v) => upd2({ comments: v }))),
         td(delBtn(() => deleteBudgetConsultant(catId, c.id)), "bgt-del-cell")
       );
+      return [consRow, ...phaseEls, addPhaseRow];
     });
     const addBtn = h("button", { class: "bgt-add-btn" }, "+ Add consultant");
     addBtn.addEventListener(
@@ -25803,6 +25949,58 @@ ${err.message}`);
     }
     return "";
   }
+  function catSel(val, knownOpts, placeholder, onChange) {
+    const opts = [...new Set(knownOpts.filter(Boolean))];
+    if (val && !opts.includes(val)) opts.unshift(val);
+    const wrap = h("div", { class: "bgt-cat-wrap" });
+    function buildSel(current) {
+      const sel = h("select", { class: "bgt-inp bgt-cat-sel" });
+      sel.appendChild(h("option", { value: "" }, `\u2014 ${placeholder} \u2014`));
+      opts.forEach((o) => {
+        const opt = h("option", { value: o }, o);
+        if (o === current) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.appendChild(h("option", { value: "__new__", class: "bgt-cat-new-opt" }, "\uFF0B Add new\u2026"));
+      if (!current) sel.value = "";
+      sel.addEventListener("change", (e) => {
+        if (e.target.value === "__new__") {
+          const ti = h("input", { class: "bgt-inp bgt-cat-new-inp", placeholder: `New ${placeholder}\u2026` });
+          wrap.replaceChildren(ti);
+          ti.focus();
+          const commit = () => {
+            const v = ti.value.trim();
+            if (v && !opts.includes(v)) opts.push(v);
+            wrap.replaceChildren(buildSel(v || current));
+            if (v) onChange(v);
+          };
+          ti.addEventListener("blur", commit);
+          ti.addEventListener("keydown", (ke) => {
+            if (ke.key === "Enter") {
+              ke.preventDefault();
+              ti.blur();
+            }
+            if (ke.key === "Escape") {
+              wrap.replaceChildren(buildSel(current));
+            }
+          });
+        } else {
+          onChange(e.target.value);
+        }
+      });
+      return sel;
+    }
+    wrap.appendChild(buildSel(val || ""));
+    return wrap;
+  }
+  function catOpts(consultants) {
+    return [...new Set(consultants.map((c) => c.category).filter(Boolean))];
+  }
+  function subCatOpts(consultants, cfItems, filterCat) {
+    const fromConsultants = consultants.filter((c) => !filterCat || c.category === filterCat).map((c) => c.subCategory).filter(Boolean);
+    const fromCashflow = (cfItems || []).filter((i) => !filterCat || i.category === filterCat).map((i) => i.label).filter(Boolean);
+    return [.../* @__PURE__ */ new Set([...fromConsultants, ...fromCashflow])];
+  }
   function partyCell(inv, consultants, catId) {
     const listId = `bgt-pl-${catId}`;
     const el = h("input", { class: "bgt-inp", value: inv.party ?? "", placeholder: "Party", list: listId });
@@ -25881,6 +26079,8 @@ ${err.message}`);
   function buildInvoiceTable(catId, invoices, consultants, onSelectionChange) {
     clearSelectionIfNeeded(catId);
     ensurePartyDatalist(catId, consultants);
+    const cfItems = getPanelData().categories.find((c) => c.id === catId)?.budget?.cashflow?.items || [];
+    const allCatOpts = catOpts(consultants);
     const allIds = invoices.map((i) => i.id);
     const headerChk = h("input", { type: "checkbox", class: "bgt-sel-chk", title: "Select / deselect all", tabindex: "-1" });
     headerChk.indeterminate = selectedInvoiceIds.size > 0 && selectedInvoiceIds.size < allIds.length;
@@ -25911,6 +26111,7 @@ ${err.message}`);
         syncHeader();
         onSelectionChange?.();
       });
+      const invSubCatOpts = subCatOpts(consultants, cfItems, inv.category);
       const row = h(
         "tr",
         null,
@@ -25922,8 +26123,8 @@ ${err.message}`);
         td(inp(inv.spvName, "SPV Name", (v) => upd2({ spvName: v }))),
         td(selStr(inv.documentType || "Invoice", DOC_TYPES, (v) => upd2({ documentType: v }))),
         td(inp(inv.discipline, "Discipline", (v) => upd2({ discipline: v }))),
-        td(inp(inv.category, "Category", (v) => upd2({ category: v }))),
-        td(inp(inv.subCategory, "Sub-Category", (v) => upd2({ subCategory: v }))),
+        td(catSel(inv.category, allCatOpts, "Category", (v) => upd2({ category: v }))),
+        td(catSel(inv.subCategory, invSubCatOpts, "Sub-Category", (v) => upd2({ subCategory: v }))),
         td(inp(inv.invoiceDate, "", (v) => upd2({ invoiceDate: v }), "date")),
         td(inp(inv.invoiceNumber, "Inv #", (v) => upd2({ invoiceNumber: v }))),
         td(inp(inv.dueDate, "", (v) => upd2({ dueDate: v }), "date")),
@@ -26073,6 +26274,18 @@ ${err.message}`);
       buildExcelImportBtn(catId),
       consCsvBtn
     ));
+    if (!budget.consultants.length) {
+      const sampleBtn = h("button", { class: "cf-sample-btn" }, "\u2193 Load sample data");
+      sampleBtn.addEventListener("click", () => loadBudgetSample(catId));
+      const banner = h(
+        "div",
+        { class: "cf-empty-banner" },
+        h("div", { class: "cf-empty-title" }, "No consultants yet"),
+        h("div", { class: "cf-empty-sub" }, "Add consultants manually, import via CSV/Excel, or load sample data to explore."),
+        sampleBtn
+      );
+      frag.appendChild(banner);
+    }
     const pivot = buildPivot(budget.consultants, budget.invoices);
     if (pivot) frag.appendChild(pivot);
     frag.appendChild(consBlock);
@@ -26228,6 +26441,552 @@ ${err.message}`);
     return frag;
   }
 
+  // src/js/components/cashflowView.js
+  var num2 = (v) => parseFloat(v) || 0;
+  var fmtK = (v) => {
+    const n = num2(v);
+    return n === 0 ? "\u2014" : "\xA3" + n.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  };
+  var fmtCell = (v) => !v || v < 5e-3 ? "" : "\xA3" + Math.round(v).toLocaleString("en-GB");
+  function parseTimingMonths(timing) {
+    if (!timing?.trim()) return [];
+    const s = timing.trim();
+    const r = s.match(/^(\d+)\s*-\s*(\d+)$/);
+    if (r) {
+      const lo = Math.min(+r[1], +r[2]), hi = Math.max(+r[1], +r[2]);
+      return Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
+    }
+    return s.split(",").map((n) => parseInt(n.trim())).filter((n) => !isNaN(n) && n > 0).sort((a, b) => a - b);
+  }
+  function formatTiming(months) {
+    if (!months.length) return "";
+    const s = [...months].sort((a, b) => a - b);
+    if (s.length >= 2 && s.every((m, i) => i === 0 || m === s[i - 1] + 1)) return `${s[0]}-${s[s.length - 1]}`;
+    return s.join(",");
+  }
+  function shiftTiming(timing, delta) {
+    if (!delta) return timing;
+    const months = parseTimingMonths(timing);
+    if (!months.length) return timing;
+    return formatTiming(months.map((m) => m + delta).filter((m) => m >= 1));
+  }
+  function resizeTiming(timing, delta) {
+    if (!delta) return timing;
+    const months = parseTimingMonths(timing);
+    if (!months.length) return timing;
+    const last = months[months.length - 1], newLast = Math.max(months[0], last + delta);
+    const isRange = months.length >= 2 && months.every((m, i) => i === 0 || m === months[i - 1] + 1);
+    if (isRange || months.length === 1) return `${months[0]}-${newLast}`;
+    if (delta > 0) {
+      const e = [...months];
+      for (let i = 0; i < delta; i++) e.push(e[e.length - 1] + 1);
+      return formatTiming(e);
+    }
+    return formatTiming(months.slice(0, Math.max(1, months.length + delta)));
+  }
+  function getMonthAmounts(amount, timing, numMonths) {
+    const months = parseTimingMonths(timing), total = num2(amount), arr = new Array(numMonths).fill(0);
+    if (!months.length || !total) return arr;
+    const perMonth = total / months.length;
+    months.forEach((m) => {
+      if (m >= 1 && m <= numMonths) arr[m - 1] += perMonth;
+    });
+    return arr;
+  }
+  function getMonthLabels(projectStart, numMonths) {
+    if (!projectStart) return Array.from({ length: numMonths }, (_, i) => `M${i + 1}`);
+    const [y, mo] = projectStart.split("-").map(Number);
+    return Array.from({ length: numMonths }, (_, i) => {
+      const d = new Date(y, mo - 1 + i, 1);
+      return d.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+    });
+  }
+  var CAT_COLOURS = [
+    { bg: "#FEF08A", border: "#EAB308", text: "#713F12" },
+    { bg: "#BBF7D0", border: "#22C55E", text: "#14532D" },
+    { bg: "#BFDBFE", border: "#3B82F6", text: "#1E3A5F" },
+    { bg: "#FED7AA", border: "#F97316", text: "#7C2D12" },
+    { bg: "#E9D5FF", border: "#A855F7", text: "#4A1D96" },
+    { bg: "#FBCFE8", border: "#EC4899", text: "#831843" },
+    { bg: "#A5F3FC", border: "#06B6D4", text: "#164E63" }
+  ];
+  var catColour = (idx) => CAT_COLOURS[idx % CAT_COLOURS.length];
+  var _drag = null;
+  var _scDrag = null;
+  function cleanupDrag() {
+    document.removeEventListener("mousemove", onDragMove);
+    document.removeEventListener("mouseup", onDragUp);
+    _drag = null;
+  }
+  function onDragMove(e) {
+    if (!_drag) return;
+    const delta = Math.round((e.clientX - _drag.startX) / _drag.colWidth);
+    if (delta === _drag.lastDelta) return;
+    _drag.lastDelta = delta;
+    const preview = _drag.resizing ? resizeTiming(_drag.origTiming, delta) : shiftTiming(_drag.origTiming, delta);
+    _drag.previewTiming = preview;
+    const pm = new Set(parseTimingMonths(preview));
+    _drag.rowCells.forEach((cell, i) => {
+      cell.classList.toggle("cf-active", pm.has(i + 1));
+      cell.classList.toggle("cf-inactive", !pm.has(i + 1));
+    });
+    if (_drag.timingEl) _drag.timingEl.textContent = preview || "\u2014";
+  }
+  function onDragUp() {
+    if (!_drag) return;
+    if (_drag.lastDelta && _drag.previewTiming != null) _drag.onCommit(_drag.previewTiming);
+    cleanupDrag();
+  }
+  var SAMPLE_CONSULTANTS = [
+    { party: "Avison Young", discipline: "Planning", category: "Planning", subCategory: "Pre application", quote: "3000", timing: "3-5", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "Avison Young", discipline: "Planning", category: "Planning", subCategory: "Application", quote: "0", timing: "14", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "Avison Young", discipline: "Planning", category: "Planning", subCategory: "Planning reports", quote: "190905", timing: "6-13", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "Avison Young", discipline: "Planning", category: "Planning", subCategory: "Project Management", quote: "0", timing: "6-13", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "Avison Young", discipline: "Planning", category: "Planning", subCategory: "Post Application", quote: "11493", timing: "16-24", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "GVA PR", discipline: "PR", category: "Planning", subCategory: "PR", quote: "34434", timing: "14", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "Nabarro LLP", discipline: "Legal", category: "Legal", subCategory: "Option & Lease", quote: "102528", timing: "4-9", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "Nabarro LLP", discipline: "Legal", category: "Legal", subCategory: "Option Fee", quote: "56537", timing: "9,21", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "Nabarro LLP", discipline: "Legal", category: "Legal", subCategory: "Easement", quote: "21238", timing: "9-13", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "AECOM", discipline: "Grid", category: "Grid", subCategory: "Application (G)", quote: "37362", timing: "1", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "AECOM", discipline: "Grid", category: "Grid", subCategory: "Securities", quote: "0", timing: "4,10,16", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" },
+    { party: "AECOM", discipline: "Grid", category: "Grid", subCategory: "Post Application (G)", quote: "42494", timing: "15", contingencyPct: "0", appointed: "Yes", company: "", contact: "", invoicingDone: false, comments: "" }
+  ];
+  function loadBudgetSampleData(catId) {
+    const existing = getPanelData().categories.find((c) => c.id === catId)?.budget?.consultants || [];
+    const existingKeys = new Set(existing.map((c) => `${c.category}|${c.subCategory}|${c.party}`));
+    SAMPLE_CONSULTANTS.forEach((c) => {
+      if (!existingKeys.has(`${c.category}|${c.subCategory}|${c.party}`)) addBudgetConsultant(catId, c);
+    });
+    updateCashflowSettings(catId, { numMonths: 24 });
+  }
+  function loadSampleData(catId) {
+    loadBudgetSampleData(catId);
+  }
+  function buildCashflowView(catId) {
+    const cat = getPanelData().categories.find((c) => c.id === catId);
+    const budget = cat?.budget || {};
+    const cf = budget.cashflow || {};
+    const consultants = budget.consultants || [];
+    const numM = cf.numMonths || 24;
+    const start = cf.projectStart || "";
+    const labels = getMonthLabels(start || null, numM);
+    const showDetail = cf.showDetail === true;
+    const allCats = [...new Set(consultants.map((c) => c.category || "General").filter(Boolean))];
+    if (!allCats.length) allCats.push("General");
+    function getBarItems(cons) {
+      const phases = cons.phases || [];
+      if (phases.length) {
+        return phases.map((p) => ({
+          label: p.label || "",
+          amount: p.amount,
+          timing: p.timing || "",
+          onUpdateTiming: (v) => updateConsultantPhase(catId, cons.id, p.id, { timing: v })
+        }));
+      }
+      return [{
+        label: cons.subCategory || cons.party,
+        amount: cons.quote,
+        timing: cons.timing || "",
+        onUpdateTiming: (v) => updateBudgetConsultant(catId, cons.id, { timing: v })
+      }];
+    }
+    const scOrderMap = budget.subCategoryOrder || {};
+    function applyScOrder(catName, natural) {
+      const stored = scOrderMap[catName] || [];
+      const ordered = stored.filter((s) => natural.includes(s));
+      const missing = natural.filter((s) => !ordered.includes(s));
+      return [...ordered, ...missing];
+    }
+    function makeScDraggable(tr, catName, scName, scOrder) {
+      tr.draggable = true;
+      tr.addEventListener("dragstart", (e) => {
+        _scDrag = { catName, scName };
+        tr.classList.add("cf-sc-dragging");
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", scName);
+      });
+      tr.addEventListener("dragend", () => {
+        tr.classList.remove("cf-sc-dragging");
+        document.querySelectorAll(".cf-sc-drag-over").forEach((el) => el.classList.remove("cf-sc-drag-over"));
+        _scDrag = null;
+      });
+      tr.addEventListener("dragover", (e) => {
+        if (!_scDrag || _scDrag.catName !== catName || _scDrag.scName === scName) return;
+        e.preventDefault();
+        document.querySelectorAll(".cf-sc-drag-over").forEach((el) => el.classList.remove("cf-sc-drag-over"));
+        tr.classList.add("cf-sc-drag-over");
+      });
+      tr.addEventListener("dragleave", (e) => {
+        if (!tr.contains(e.relatedTarget)) tr.classList.remove("cf-sc-drag-over");
+      });
+      tr.addEventListener("drop", (e) => {
+        if (!_scDrag || _scDrag.catName !== catName || _scDrag.scName === scName) return;
+        e.preventDefault();
+        tr.classList.remove("cf-sc-drag-over");
+        const fromIdx = scOrder.indexOf(_scDrag.scName);
+        const toIdx = scOrder.indexOf(scName);
+        if (fromIdx === -1 || toIdx === -1) return;
+        const newOrder = [...scOrder];
+        newOrder.splice(fromIdx, 1);
+        newOrder.splice(toIdx, 0, _scDrag.scName);
+        updateSubCategoryOrder(catId, catName, newOrder);
+      });
+    }
+    const colCells = Array.from({ length: numM }, () => []);
+    const colHeaders = [];
+    let selMonthIdx = null;
+    const inspectPanel = h("div", { class: "cf-detail-panel" });
+    inspectPanel.style.display = "none";
+    function buildInspectContent(idx) {
+      inspectPanel.innerHTML = "";
+      const active = [];
+      allCats.forEach((catName, ci) => {
+        consultants.filter((c) => (c.category || "General") === catName).forEach((cons) => {
+          getBarItems(cons).forEach((item) => {
+            if (!parseTimingMonths(item.timing).includes(idx + 1)) return;
+            active.push({ catName, ci, label: item.label, party: cons.party, amount: getMonthAmounts(item.amount, item.timing, numM)[idx] });
+          });
+        });
+      });
+      const grandTotal = active.reduce((s, i) => s + i.amount, 0);
+      const grouped = {};
+      active.forEach((i) => {
+        if (!grouped[i.catName]) grouped[i.catName] = [];
+        grouped[i.catName].push(i);
+      });
+      const hdr = h(
+        "div",
+        { class: "cf-dp-hdr" },
+        h("span", { class: "cf-dp-title" }, labels[idx]),
+        h("span", { class: "cf-dp-count" }, `${active.length} item${active.length !== 1 ? "s" : ""}`),
+        h("span", { class: "cf-dp-total" }, `Total: ${fmtK(grandTotal)}`),
+        h("button", { class: "cf-dp-close" }, "\xD7")
+      );
+      hdr.querySelector(".cf-dp-close").addEventListener("click", deselectMonth);
+      inspectPanel.appendChild(hdr);
+      if (!active.length) {
+        inspectPanel.appendChild(h("div", { class: "cf-dp-empty" }, "No items scheduled this month"));
+      } else {
+        const list = h("div", { class: "cf-dp-list" });
+        allCats.forEach((catName, ci) => {
+          if (!grouped[catName]) return;
+          const colour = catColour(ci);
+          const catTotal = grouped[catName].reduce((s, i) => s + i.amount, 0);
+          const section = h("div", { class: "cf-dp-section" });
+          section.appendChild(h(
+            "div",
+            { class: "cf-dp-cat" },
+            h("span", { class: "cf-dp-cat-dot", style: { background: colour.border } }),
+            h("span", { class: "cf-dp-cat-name" }, catName),
+            h("span", { class: "cf-dp-cat-total" }, fmtK(catTotal))
+          ));
+          grouped[catName].forEach((i) => section.appendChild(h(
+            "div",
+            { class: "cf-dp-item" },
+            h("span", { class: "cf-dp-item-name" }, [i.party, i.label].filter(Boolean).join(" \xB7 ")),
+            h("span", { class: "cf-dp-item-amt" }, fmtK(i.amount))
+          )));
+          list.appendChild(section);
+        });
+        inspectPanel.appendChild(list);
+      }
+    }
+    function deselectMonth() {
+      if (selMonthIdx !== null) {
+        colHeaders[selMonthIdx]?.classList.remove("cf-th-sel");
+        colCells[selMonthIdx]?.forEach((c) => c.classList.remove("cf-col-sel"));
+      }
+      selMonthIdx = null;
+      inspectPanel.style.display = "none";
+    }
+    function selectMonth(idx) {
+      if (selMonthIdx === idx) {
+        deselectMonth();
+        return;
+      }
+      deselectMonth();
+      selMonthIdx = idx;
+      colHeaders[idx]?.classList.add("cf-th-sel");
+      colCells[idx]?.forEach((c) => c.classList.add("cf-col-sel"));
+      buildInspectContent(idx);
+      inspectPanel.style.display = "";
+    }
+    const monthThEls = labels.map((lbl, i) => {
+      const th = h("th", { class: `cf-th cf-th-month${i < 2 ? " cf-th-near" : ""}`, title: `Click to inspect ${lbl}` }, lbl);
+      th.style.cursor = "pointer";
+      th.addEventListener("click", () => selectMonth(i));
+      colHeaders.push(th);
+      return th;
+    });
+    const thead = h("thead", null, h(
+      "tr",
+      null,
+      h("th", { class: "cf-th cf-th-name" }, showDetail ? "Description" : "Description"),
+      h("th", { class: "cf-th cf-th-amt" }, showDetail ? "Party" : "\xA3 Total"),
+      ...showDetail ? [h("th", { class: "cf-th cf-th-timing" }, "Timing")] : [],
+      ...monthThEls
+    ));
+    const tbody = h("tbody");
+    function emptyMonthCells(cls) {
+      return Array.from({ length: numM }, (_, mi) => {
+        const cell = h("td", { class: cls }, "");
+        colCells[mi].push(cell);
+        return cell;
+      });
+    }
+    function buildBarRow(item, colour) {
+      const months = parseTimingMonths(item.timing);
+      const monthSet = new Set(months);
+      const isLastM = (m) => months.length > 0 && m === months[months.length - 1];
+      const rowCells = [];
+      const timingLbl = h("span", { class: "cf-timing-val" }, item.timing || "\u2014");
+      const timingInp = h("input", { class: "cf-inp cf-inp-timing", value: item.timing || "", placeholder: "e.g. 3-5" });
+      timingInp.style.display = "none";
+      timingLbl.addEventListener("click", () => {
+        timingLbl.style.display = "none";
+        timingInp.style.display = "";
+        timingInp.focus();
+        timingInp.select();
+      });
+      timingInp.addEventListener("blur", (e) => {
+        item.onUpdateTiming(e.target.value);
+        timingInp.style.display = "none";
+        timingLbl.style.display = "";
+      });
+      timingInp.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") e.target.blur();
+      });
+      const barCells = Array.from({ length: numM }, (_, mi) => {
+        const m = mi + 1;
+        const isActive = monthSet.has(m);
+        const isFirst = months.length > 0 && m === months[0];
+        const isLast = isLastM(m);
+        const cell = h("td", {
+          class: isActive ? `cf-cell cf-active cf-gantt-cell${isLast ? " cf-last-month" : ""}` : "cf-cell",
+          style: isActive ? { background: colour.bg, borderColor: colour.border, position: "relative" } : {},
+          title: isActive ? item.label : ""
+        }, isFirst ? h("span", { class: "cf-gantt-label", style: { color: colour.text } }, item.label) : "");
+        if (isActive) {
+          cell.style.cursor = "grab";
+          cell.addEventListener("mousedown", (e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            const rect = cell.getBoundingClientRect();
+            const resizing = isLast && e.clientX - rect.left > rect.width * 0.65;
+            _drag = { origTiming: item.timing || "", previewTiming: item.timing || "", startX: e.clientX, colWidth: rect.width, lastDelta: 0, resizing, rowCells, timingEl: timingLbl, onCommit: item.onUpdateTiming };
+            document.addEventListener("mousemove", onDragMove);
+            document.addEventListener("mouseup", onDragUp);
+          });
+        }
+        rowCells.push(cell);
+        colCells[mi].push(cell);
+        return cell;
+      });
+      return { timingLbl, timingInp, barCells };
+    }
+    if (!showDetail) {
+      const grandMonthly = new Array(numM).fill(0);
+      allCats.forEach((categoryName, catIdx) => {
+        const colour = catColour(catIdx);
+        const catConss = consultants.filter((c) => (c.category || "General") === categoryName);
+        const allItems = catConss.flatMap(getBarItems);
+        const catMonthly = new Array(numM).fill(0);
+        allItems.forEach((item) => getMonthAmounts(item.amount, item.timing, numM).forEach((v, mi) => {
+          catMonthly[mi] += v;
+        }));
+        catMonthly.forEach((v, mi) => {
+          grandMonthly[mi] += v;
+        });
+        const catTotal = catConss.reduce((s, c) => s + num2(c.quote), 0);
+        tbody.appendChild(h(
+          "tr",
+          { class: "cf-cat-row" },
+          h("td", { class: "cf-cat-name" }, categoryName),
+          h("td", { class: "cf-cat-amt" }, fmtK(catTotal)),
+          ...catMonthly.map((v, mi) => {
+            const cell = h("td", { class: "cf-cat-month" }, fmtCell(v) || "");
+            colCells[mi].push(cell);
+            return cell;
+          })
+        ));
+        const scNatural = [], scMap = {};
+        catConss.forEach((cons) => {
+          const sc = cons.subCategory || cons.party;
+          if (!scMap[sc]) {
+            scMap[sc] = [];
+            scNatural.push(sc);
+          }
+          scMap[sc].push(...getBarItems(cons));
+        });
+        const scOrder = applyScOrder(categoryName, scNatural);
+        scOrder.forEach((scName) => {
+          const scItems = scMap[scName];
+          const scMonthly = new Array(numM).fill(0);
+          scItems.forEach((item) => getMonthAmounts(item.amount, item.timing, numM).forEach((v, mi) => {
+            scMonthly[mi] += v;
+          }));
+          const scTotal = scItems.reduce((s, item) => s + num2(item.amount), 0);
+          const scRow = h(
+            "tr",
+            { class: "cf-subcat-row" },
+            h(
+              "td",
+              { class: "cf-subcat-name" },
+              h("span", { class: "cf-sc-drag-handle", title: "Drag to reorder" }, "\u283F"),
+              scName
+            ),
+            h("td", { class: "cf-subcat-amt" }, fmtK(scTotal)),
+            ...scMonthly.map((v, mi) => {
+              const isActive = v > 0;
+              const cell = h("td", {
+                class: isActive ? "cf-cell cf-active cf-subcat-month" : "cf-subcat-month",
+                style: isActive ? { background: colour.bg, borderColor: colour.border } : {}
+              }, fmtCell(v) || "");
+              colCells[mi].push(cell);
+              return cell;
+            })
+          );
+          makeScDraggable(scRow, categoryName, scName, scOrder);
+          tbody.appendChild(scRow);
+        });
+      });
+      const totalAmt = consultants.reduce((s, c) => s + num2(c.quote), 0);
+      tbody.appendChild(h(
+        "tr",
+        { class: "cf-total-row" },
+        h("td", { class: "cf-total-lbl" }, "Total"),
+        h("td", { class: "cf-total-amt" }, fmtK(totalAmt)),
+        ...grandMonthly.map((v, mi) => {
+          const cell = h("td", { class: "cf-total-cell" }, fmtCell(v) || "\u2014");
+          colCells[mi].push(cell);
+          return cell;
+        })
+      ));
+      let running = 0;
+      tbody.appendChild(h(
+        "tr",
+        { class: "cf-cum-row" },
+        h("td", { class: "cf-cum-lbl", colSpan: 2 }, "Cumulative"),
+        ...grandMonthly.map((v, mi) => {
+          running += v;
+          const cell = h("td", { class: "cf-cum-cell" }, fmtK(running));
+          colCells[mi].push(cell);
+          return cell;
+        })
+      ));
+    } else {
+      allCats.forEach((categoryName, catIdx) => {
+        const colour = catColour(catIdx);
+        const catConss = consultants.filter((c) => (c.category || "General") === categoryName);
+        if (!catConss.length) return;
+        tbody.appendChild(h(
+          "tr",
+          { class: "cf-cat-row" },
+          h("td", { class: "cf-cat-name" }, categoryName),
+          h("td", { class: "cf-cat-amt" }, ""),
+          h("td", { class: "cf-cat-timing" }),
+          ...emptyMonthCells("cf-cat-month")
+        ));
+        const scNatural = [], scMap = {};
+        catConss.forEach((cons) => {
+          const sc = cons.subCategory || cons.party;
+          if (!scMap[sc]) {
+            scMap[sc] = [];
+            scNatural.push(sc);
+          }
+          scMap[sc].push(cons);
+        });
+        const scOrder = applyScOrder(categoryName, scNatural);
+        scOrder.forEach((scName) => {
+          const scRow = h(
+            "tr",
+            { class: "cf-subcat-row" },
+            h(
+              "td",
+              { class: "cf-subcat-name" },
+              h("span", { class: "cf-sc-drag-handle", title: "Drag to reorder" }, "\u283F"),
+              scName
+            ),
+            h("td", { class: "cf-subcat-amt" }, ""),
+            h("td", { class: "cf-subcat-timing" }),
+            ...emptyMonthCells("cf-subcat-month")
+          );
+          makeScDraggable(scRow, categoryName, scName, scOrder);
+          tbody.appendChild(scRow);
+          scMap[scName].forEach((cons) => {
+            tbody.appendChild(h(
+              "tr",
+              { class: "cf-cons-lbl-row" },
+              h("td", { class: "cf-cons-lbl-name" }, cons.party || "\u2014"),
+              h("td", { class: "cf-subcat-amt" }, ""),
+              h("td", { class: "cf-subcat-timing" }),
+              ...emptyMonthCells("cf-subcat-month")
+            ));
+            getBarItems(cons).forEach((item) => {
+              const { timingLbl, timingInp, barCells } = buildBarRow(item, colour);
+              tbody.appendChild(h(
+                "tr",
+                { class: "cf-gantt-row cf-phase-gantt-row" },
+                h(
+                  "td",
+                  { class: "cf-item-name cf-gantt-name cf-phase-indent-name" },
+                  h("span", { class: "cf-phase-tree" }, "\u2514"),
+                  item.label || "\u2014"
+                ),
+                h("td", { class: "cf-item-amt" }, ""),
+                h("td", { class: "cf-item-timing" }, timingLbl, timingInp),
+                ...barCells
+              ));
+            });
+          });
+        });
+      });
+    }
+    const table = h("table", { class: "cf-table" }, thead, tbody);
+    const startInp = h("input", { class: "cf-setting-inp", type: "month", value: start || "", title: "Project start month" });
+    startInp.addEventListener("change", (e) => updateCashflowSettings(catId, { projectStart: e.target.value }));
+    const monthsSel = h("select", { class: "cf-setting-sel" });
+    [12, 18, 24, 36, 48].forEach((n) => {
+      const opt = h("option", { value: n }, `${n} months`);
+      if (n === numM) opt.selected = true;
+      monthsSel.appendChild(opt);
+    });
+    monthsSel.addEventListener("change", (e) => updateCashflowSettings(catId, { numMonths: +e.target.value }));
+    const viewToggle = h("button", {
+      class: `cf-detail-toggle${showDetail ? " active" : ""}`,
+      title: showDetail ? "Switch to cashflow numbers view" : "Switch to timeline view"
+    }, showDetail ? "\xA3 Cashflow" : "\u25EB Timeline");
+    viewToggle.addEventListener("click", () => updateCashflowSettings(catId, { showDetail: !showDetail }));
+    const settingsBar = h(
+      "div",
+      { class: "cf-settings-bar" },
+      h("label", { class: "cf-setting-label" }, "Project start"),
+      startInp,
+      h("label", { class: "cf-setting-label" }, "Show"),
+      monthsSel,
+      h("div", { class: "cf-settings-spacer" }),
+      viewToggle
+    );
+    const wrap = h("div", { class: "cf-wrap" });
+    wrap.appendChild(settingsBar);
+    wrap.appendChild(inspectPanel);
+    if (!consultants.length) {
+      const banner = h(
+        "div",
+        { class: "cf-empty-banner" },
+        h("div", { class: "cf-empty-title" }, "No budget data yet"),
+        h("div", { class: "cf-empty-sub" }, "Add consultants in the Budget tab \u2014 their phases will drive the cashflow and timeline automatically."),
+        h("button", { class: "cf-sample-btn" }, "\u2193 Load sample data")
+      );
+      banner.querySelector(".cf-sample-btn").addEventListener("click", () => loadSampleData(catId));
+      wrap.appendChild(banner);
+    }
+    const scrollWrap = h("div", { class: "cf-scroll" });
+    scrollWrap.appendChild(table);
+    wrap.appendChild(scrollWrap);
+    return wrap;
+  }
+
   // src/js/render.js
   var _searchWasFocused = false;
   var _searchCaretPos = 0;
@@ -26375,9 +27134,10 @@ ${err.message}`);
         "tasks",
         ...hasBible ? ["bible"] : [],
         ...hasBudget ? ["budget"] : [],
-        ...hasBudget ? ["invoices"] : []
+        ...hasBudget ? ["invoices"] : [],
+        ...hasBudget ? ["cashflow"] : []
       ];
-      const tabLabels = { tasks: "Tasks", bible: "Project Bible", budget: "Budget", invoices: "Invoices" };
+      const tabLabels = { tasks: "Tasks", bible: "Project Bible", budget: "Budget", invoices: "Invoices", cashflow: "Cashflow" };
       const tabRow = h(
         "div",
         { class: "cat-tab-row" },
@@ -26774,6 +27534,7 @@ ${err.message}`);
     if (S.catTab === "bible") return [buildBibleView(S.activeCat)];
     if (S.catTab === "budget") return [buildBudgetView(S.activeCat)];
     if (S.catTab === "invoices") return [buildInvoicesView(S.activeCat)];
+    if (S.catTab === "cashflow") return [buildCashflowView(S.activeCat)];
     const items = getFilteredItems();
     if (!items.length) return [h("div", { class: "empty-state" }, "No items here")];
     const done = items.filter((i) => i.done);
