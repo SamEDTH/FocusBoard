@@ -26593,6 +26593,9 @@ ${err.message}`);
     loadBudgetSampleData(catId);
   }
   function buildCashflowView(catId) {
+    cleanupDrag();
+    document.querySelectorAll(".cf-sc-drag-over").forEach((el) => el.classList.remove("cf-sc-drag-over"));
+    _scDrag = null;
     const cat = getPanelData().categories.find((c) => c.id === catId);
     const budget = cat?.budget || {};
     const cf = budget.cashflow || {};
@@ -26601,15 +26604,21 @@ ${err.message}`);
     const start = cf.projectStart || "";
     const labels = getMonthLabels(start || null, numM);
     const showDetail = cf.showDetail === true;
+    function parseYYYYMM(s) {
+      if (typeof s !== "string") return null;
+      const p = s.split("-").map(Number);
+      return p.length === 2 && !isNaN(p[0]) && p[1] >= 1 && p[1] <= 12 ? p : null;
+    }
     const gwDates = cat?.bible?.gatewayDates || {};
     const gwStage = cat?.bible?.gatewayStage || 0;
     const gwMarkers = {};
-    if (start) {
-      const [sy, sm] = start.split("-").map(Number);
+    const startParsed = parseYYYYMM(start);
+    if (startParsed) {
+      const [sy, sm] = startParsed;
       GATEWAY_STAGES2.forEach((name, i) => {
-        const d = gwDates[name];
-        if (!d) return;
-        const [gy, gm] = d.split("-").map(Number);
+        const gp = parseYYYYMM(gwDates[name]);
+        if (!gp) return;
+        const [gy, gm] = gp;
         const idx = (gy - sy) * 12 + (gm - sm);
         if (idx >= 0 && idx < numM) gwMarkers[idx] = { name, confirmed: i + 1 <= gwStage };
       });
@@ -26617,18 +26626,20 @@ ${err.message}`);
     const allCats = [...new Set(consultants.map((c) => c.category || "General").filter(Boolean))];
     if (!allCats.length) allCats.push("General");
     function getBarItems(cons) {
+      if (!cons?.id) return [];
       const phases = cons.phases || [];
       if (phases.length) {
         return phases.map((p) => ({
           label: p.label || "",
-          amount: p.amount,
+          amount: p.amount ?? "0",
+          // never undefined — num() would silently treat as 0
           timing: p.timing || "",
           onUpdateTiming: (v) => updateConsultantPhase(catId, cons.id, p.id, { timing: v })
         }));
       }
       return [{
-        label: cons.subCategory || cons.party,
-        amount: cons.quote,
+        label: cons.subCategory || cons.party || "\u2014",
+        amount: cons.quote ?? "0",
         timing: cons.timing || "",
         onUpdateTiming: (v) => updateBudgetConsultant(catId, cons.id, { timing: v })
       }];
@@ -26801,14 +26812,20 @@ ${err.message}`);
       timingInp.style.display = "none";
       timingLbl.addEventListener("click", () => {
         timingLbl.style.display = "none";
-        timingInp.style.display = "";
+        timingInp.style.display = "inline";
         timingInp.focus();
         timingInp.select();
       });
       timingInp.addEventListener("blur", (e) => {
-        item.onUpdateTiming(e.target.value);
+        const v = e.target.value.trim();
+        const parsed = parseTimingMonths(v);
+        const invalid = v.length > 0 && parsed.length === 0;
+        timingInp.classList.toggle("cf-inp-invalid", invalid);
+        timingLbl.classList.toggle("cf-timing-invalid", invalid);
+        timingLbl.textContent = v || "\u2014";
+        item.onUpdateTiming(v);
         timingInp.style.display = "none";
-        timingLbl.style.display = "";
+        timingLbl.style.display = "inline";
       });
       timingInp.addEventListener("keydown", (e) => {
         if (e.key === "Enter") e.target.blur();

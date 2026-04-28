@@ -2153,6 +2153,10 @@ body.light .bgt-inp[type="date"] { color-scheme: light; }
   font-style: italic;
 }
 
+/* ── Timing input validation ── */
+.cf-inp-invalid { border-color: #ef4444 !important; background: #fef2f2 !important; }
+.cf-timing-invalid { color: #ef4444; text-decoration: underline wavy #ef4444; }
+
 /* ── Gateway dates (bible view) ── */
 .bv-gw-date-wrap {
   display: flex;

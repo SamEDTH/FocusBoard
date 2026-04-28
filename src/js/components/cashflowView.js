@@ -140,6 +140,11 @@ function loadSampleData(catId) { loadBudgetSampleData(catId); }
 // ── Main view ──────────────────────────────────────────────────────────────────
 
 export function buildCashflowView(catId) {
+  // Cancel any stale drag from a previous render (tab switch mid-drag, etc.)
+  cleanupDrag();
+  document.querySelectorAll('.cf-sc-drag-over').forEach(el => el.classList.remove('cf-sc-drag-over'));
+  _scDrag = null;
+
   const cat         = getPanelData().categories.find(c => c.id === catId);
   const budget      = cat?.budget || {};
   const cf          = budget.cashflow || {};
@@ -151,15 +156,23 @@ export function buildCashflowView(catId) {
 
   // ── Gateway column markers ─────────────────────────────────────────────────
   // gwMarkers[monthIdx] = { name, confirmed } — only populated when projectStart is set
-  const gwDates   = cat?.bible?.gatewayDates || {};
-  const gwStage   = cat?.bible?.gatewayStage || 0;
-  const gwMarkers = {};
-  if (start) {
-    const [sy, sm] = start.split('-').map(Number);
+  /** Safely parse a YYYY-MM string; returns [year, month] or null. */
+  function parseYYYYMM(s) {
+    if (typeof s !== 'string') return null;
+    const p = s.split('-').map(Number);
+    return p.length === 2 && !isNaN(p[0]) && p[1] >= 1 && p[1] <= 12 ? p : null;
+  }
+
+  const gwDates        = cat?.bible?.gatewayDates || {};
+  const gwStage        = cat?.bible?.gatewayStage || 0;
+  const gwMarkers      = {};
+  const startParsed    = parseYYYYMM(start);
+  if (startParsed) {
+    const [sy, sm] = startParsed;
     GATEWAY_STAGES.forEach((name, i) => {
-      const d = gwDates[name];
-      if (!d) return;
-      const [gy, gm] = d.split('-').map(Number);
+      const gp = parseYYYYMM(gwDates[name]);
+      if (!gp) return;
+      const [gy, gm] = gp;
       const idx = (gy - sy) * 12 + (gm - sm);
       if (idx >= 0 && idx < numM) gwMarkers[idx] = { name, confirmed: (i + 1) <= gwStage };
     });
@@ -173,18 +186,19 @@ export function buildCashflowView(catId) {
   // Returns drawable rows: phases if present, otherwise the consultant itself.
   // Each item carries its own onUpdateTiming so callers never need to branch.
   function getBarItems(cons) {
+    if (!cons?.id) return [];   // guard: skip malformed consultant rows
     const phases = cons.phases || [];
     if (phases.length) {
       return phases.map(p => ({
         label:          p.label || '',
-        amount:         p.amount,
+        amount:         p.amount ?? '0',   // never undefined — num() would silently treat as 0
         timing:         p.timing || '',
         onUpdateTiming: v => updateConsultantPhase(catId, cons.id, p.id, { timing: v }),
       }));
     }
     return [{
-      label:          cons.subCategory || cons.party,
-      amount:         cons.quote,
+      label:          cons.subCategory || cons.party || '—',
+      amount:         cons.quote ?? '0',
       timing:         cons.timing || '',
       onUpdateTiming: v => updateBudgetConsultant(catId, cons.id, { timing: v }),
     }];
@@ -361,8 +375,24 @@ export function buildCashflowView(catId) {
     const timingLbl = h('span', { class: 'cf-timing-val' }, item.timing || '—');
     const timingInp = h('input', { class: 'cf-inp cf-inp-timing', value: item.timing || '', placeholder: 'e.g. 3-5' });
     timingInp.style.display = 'none';
-    timingLbl.addEventListener('click', () => { timingLbl.style.display = 'none'; timingInp.style.display = ''; timingInp.focus(); timingInp.select(); });
-    timingInp.addEventListener('blur',    e => { item.onUpdateTiming(e.target.value); timingInp.style.display = 'none'; timingLbl.style.display = ''; });
+    timingLbl.addEventListener('click', () => {
+      timingLbl.style.display = 'none';
+      timingInp.style.display = 'inline';   // explicit — don't rely on CSS default
+      timingInp.focus();
+      timingInp.select();
+    });
+    timingInp.addEventListener('blur', e => {
+      const v = e.target.value.trim();
+      // Warn if the user typed something but it produced no valid months
+      const parsed = parseTimingMonths(v);
+      const invalid = v.length > 0 && parsed.length === 0;
+      timingInp.classList.toggle('cf-inp-invalid', invalid);
+      timingLbl.classList.toggle('cf-timing-invalid', invalid);
+      timingLbl.textContent = v || '—';     // update label NOW, before the re-render fires
+      item.onUpdateTiming(v);
+      timingInp.style.display = 'none';
+      timingLbl.style.display = 'inline';   // explicit
+    });
     timingInp.addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
 
     const barCells = Array.from({ length: numM }, (_, mi) => {
