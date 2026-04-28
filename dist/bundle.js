@@ -20410,8 +20410,8 @@ ${suffix}`;
   if (shouldShowDeprecationWarning()) console.warn("\u26A0\uFE0F  Node.js 18 and below are deprecated and will no longer be supported in future versions of @supabase/supabase-js. Please upgrade to Node.js 20 or later. For more information, visit: https://github.com/orgs/supabase/discussions/37217");
 
   // src/js/services/supabase.js
-  var SUPABASE_URL = typeof __SUPABASE_URL__ !== "undefined" && __SUPABASE_URL__ ? __SUPABASE_URL__ : "";
-  var SUPABASE_KEY = typeof __SUPABASE_ANON_KEY__ !== "undefined" && __SUPABASE_ANON_KEY__ ? __SUPABASE_ANON_KEY__ : "";
+  var SUPABASE_URL = "" ? "" : "";
+  var SUPABASE_KEY = "" ? "" : "";
   var supabase = SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPABASE_KEY) : null;
   var isSupabaseConfigured = () => !!supabase;
   async function signInWithGoogle() {
@@ -22001,7 +22001,7 @@ ${suffix}`;
   }
 
   // src/js/components/passwordGate.js
-  var REQUIRED_HASH = typeof __PASSWORD_HASH__ !== "undefined" && __PASSWORD_HASH__ ? __PASSWORD_HASH__ : null;
+  var REQUIRED_HASH = "" ? "" : null;
   var AUTH_KEY = "focusboard-auth";
   function isPasswordProtected() {
     return !!REQUIRED_HASH;
@@ -27067,6 +27067,8 @@ ${err.message}`);
   }
 
   // src/js/render.js
+  var APP_VERSION = "2.0.0-cashflow";
+  console.info(`%cFocusboard ${APP_VERSION}`, "color:#38bdf8;font-weight:700;font-size:13px");
   var _searchWasFocused = false;
   var _searchCaretPos = 0;
   var _searchRenderTimer = null;

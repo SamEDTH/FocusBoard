@@ -17,6 +17,9 @@ import { buildCashflowView } from './components/cashflowView.js';
 
 // ── Search focus restoration ──────────────────────────────────────────────────
 // Saved across renders so typing into the search bar doesn't lose the caret.
+const APP_VERSION = '2.0.0-cashflow';
+console.info(`%cFocusboard ${APP_VERSION}`, 'color:#38bdf8;font-weight:700;font-size:13px');
+
 let _searchWasFocused = false;
 let _searchCaretPos   = 0;
 let _searchRenderTimer = null;
