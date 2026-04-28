@@ -731,6 +731,16 @@ export function updateBibleGateway(catId, stage) {
   upd(newData);
 }
 
+export function updateBibleGatewayDate(catId, gatewayName, date) {
+  const newData = JSON.parse(JSON.stringify(S.data));
+  const cat = newData[S.panel].categories.find(c => c.id === catId);
+  if (!cat?.bible) return;
+  if (!cat.bible.gatewayDates) cat.bible.gatewayDates = {};
+  if (date) cat.bible.gatewayDates[gatewayName] = date;
+  else delete cat.bible.gatewayDates[gatewayName];
+  upd(newData);
+}
+
 export function deleteBibleSection(catId, sectionId) {
   const newData = JSON.parse(JSON.stringify(S.data));
   const cat = newData[S.panel].categories.find(c => c.id === catId);

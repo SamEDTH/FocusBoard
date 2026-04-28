@@ -21606,6 +21606,15 @@ ${suffix}`;
     if (cat?.bible) cat.bible.gatewayStage = stage;
     upd(newData);
   }
+  function updateBibleGatewayDate(catId, gatewayName, date) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat?.bible) return;
+    if (!cat.bible.gatewayDates) cat.bible.gatewayDates = {};
+    if (date) cat.bible.gatewayDates[gatewayName] = date;
+    else delete cat.bible.gatewayDates[gatewayName];
+    upd(newData);
+  }
   function deleteBibleSection(catId, sectionId) {
     const newData = JSON.parse(JSON.stringify(S.data));
     const cat = newData[S.panel].categories.find((c) => c.id === catId);
@@ -24796,16 +24805,36 @@ ${suffix}`;
     return h("div", { class: "bv-row" }, labelInp, valueInp, badge, del);
   }
   var GATEWAY_STAGES = ["Grid", "HoTs", "Option", "Planning", "RTB"];
-  function buildGatewayBar(catId, currentStage) {
+  function buildGatewayBar(catId, currentStage, gatewayDates) {
     const bar = h("div", { class: "bv-gw-bar" });
     GATEWAY_STAGES.forEach((name, i) => {
       const n = i + 1;
       const isDone = currentStage > n;
       const isActive = currentStage === n;
+      const isPast = isDone || isActive;
       const cls = isDone ? "bv-gw-stage bv-gw-done" : isActive ? "bv-gw-stage bv-gw-active" : "bv-gw-stage";
       const dot = h("div", { class: "bv-gw-dot" }, isDone ? "\u2713" : String(n));
       const label = h("div", { class: "bv-gw-name" }, name);
-      const stage = h("div", { class: cls, title: `Gateway: ${name}` }, dot, label);
+      const dateVal = (gatewayDates || {})[name] || "";
+      const dateInp = h("input", {
+        class: `bv-gw-date ${isPast ? "bv-gw-date-confirmed" : "bv-gw-date-anticipated"}`,
+        type: "month",
+        value: dateVal,
+        title: `${isPast ? "Confirmed" : "Anticipated"} date for ${name} gateway`
+      });
+      dateInp.addEventListener("click", (e) => e.stopPropagation());
+      dateInp.addEventListener("change", (e) => updateBibleGatewayDate(catId, name, e.target.value));
+      const dateWrap = h(
+        "div",
+        { class: "bv-gw-date-wrap" },
+        dateInp,
+        h(
+          "span",
+          { class: `bv-gw-date-lbl ${isPast ? "bv-gw-date-lbl-confirmed" : ""}` },
+          isPast ? "Confirmed" : "Anticipated"
+        )
+      );
+      const stage = h("div", { class: cls, title: `Gateway: ${name}` }, dot, label, dateWrap);
       stage.addEventListener(
         "click",
         () => updateBibleGateway(catId, isActive ? 0 : n)
@@ -24868,7 +24897,7 @@ ${suffix}`;
     node.style.gridColumn = `span ${cols}`;
     if (isSummary) {
       const cat = getPanelData().categories.find((c) => c.id === catId);
-      node.appendChild(buildGatewayBar(catId, cat?.bible?.gatewayStage || 0));
+      node.appendChild(buildGatewayBar(catId, cat?.bible?.gatewayStage || 0, cat?.bible?.gatewayDates || {}));
     }
     return node;
   }
@@ -26501,6 +26530,7 @@ ${err.message}`);
       return d.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
     });
   }
+  var GATEWAY_STAGES2 = ["Grid", "HoTs", "Option", "Planning", "RTB"];
   var CAT_COLOURS = [
     { bg: "#FEF08A", border: "#EAB308", text: "#713F12" },
     { bg: "#BBF7D0", border: "#22C55E", text: "#14532D" },
@@ -26571,6 +26601,19 @@ ${err.message}`);
     const start = cf.projectStart || "";
     const labels = getMonthLabels(start || null, numM);
     const showDetail = cf.showDetail === true;
+    const gwDates = cat?.bible?.gatewayDates || {};
+    const gwStage = cat?.bible?.gatewayStage || 0;
+    const gwMarkers = {};
+    if (start) {
+      const [sy, sm] = start.split("-").map(Number);
+      GATEWAY_STAGES2.forEach((name, i) => {
+        const d = gwDates[name];
+        if (!d) return;
+        const [gy, gm] = d.split("-").map(Number);
+        const idx = (gy - sy) * 12 + (gm - sm);
+        if (idx >= 0 && idx < numM) gwMarkers[idx] = { name, confirmed: i + 1 <= gwStage };
+      });
+    }
     const allCats = [...new Set(consultants.map((c) => c.category || "General").filter(Boolean))];
     if (!allCats.length) allCats.push("General");
     function getBarItems(cons) {
@@ -26712,7 +26755,21 @@ ${err.message}`);
       inspectPanel.style.display = "";
     }
     const monthThEls = labels.map((lbl, i) => {
-      const th = h("th", { class: `cf-th cf-th-month${i < 2 ? " cf-th-near" : ""}`, title: `Click to inspect ${lbl}` }, lbl);
+      const gw = gwMarkers[i];
+      const cls = [
+        "cf-th",
+        "cf-th-month",
+        i < 2 ? "cf-th-near" : "",
+        gw ? "cf-th-gw" : "",
+        gw?.confirmed ? "cf-gw-confirmed-col" : gw ? "cf-gw-anticipated-col" : ""
+      ].filter(Boolean).join(" ");
+      const th = h("th", { class: cls, title: gw ? `${gw.confirmed ? "Confirmed" : "Anticipated"}: ${gw.name} gateway` : `Click to inspect ${lbl}` });
+      if (gw) {
+        th.appendChild(h("div", {
+          class: `cf-gw-badge cf-gw-badge-${gw.confirmed ? "confirmed" : "anticipated"}`
+        }, gw.name));
+      }
+      th.appendChild(document.createTextNode(lbl));
       th.style.cursor = "pointer";
       th.addEventListener("click", () => selectMonth(i));
       colHeaders.push(th);
@@ -26942,6 +26999,11 @@ ${err.message}`);
         });
       });
     }
+    Object.entries(gwMarkers).forEach(([idxStr, gw]) => {
+      const mi = parseInt(idxStr);
+      const colCls = gw.confirmed ? "cf-gw-confirmed-col" : "cf-gw-anticipated-col";
+      colCells[mi]?.forEach((cell) => cell.classList.add("cf-gw-col", colCls));
+    });
     const table = h("table", { class: "cf-table" }, thead, tbody);
     const startInp = h("input", { class: "cf-setting-inp", type: "month", value: start || "", title: "Project start month" });
     startInp.addEventListener("change", (e) => updateCashflowSettings(catId, { projectStart: e.target.value }));

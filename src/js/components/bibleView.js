@@ -3,7 +3,7 @@ import {
   addBibleSection, updateBibleSection, updateBibleSectionTitle, deleteBibleSection,
   addBibleRow, updateBibleRow, deleteBibleRow,
   addBibleContact, updateBibleContact, deleteBibleContact,
-  updateBibleGateway,
+  updateBibleGateway, updateBibleGatewayDate,
 } from '../store.js';
 import { h } from '../dom.js';
 
@@ -38,21 +38,40 @@ function buildRow(catId, sectionId, row) {
 
 const GATEWAY_STAGES = ['Grid', 'HoTs', 'Option', 'Planning', 'RTB'];
 
-function buildGatewayBar(catId, currentStage) {
+function buildGatewayBar(catId, currentStage, gatewayDates) {
   const bar = h('div', { class: 'bv-gw-bar' });
 
   GATEWAY_STAGES.forEach((name, i) => {
-    const n       = i + 1;
-    const isDone  = currentStage > n;
-    const isActive = currentStage === n;
-    const cls     = isDone ? 'bv-gw-stage bv-gw-done'
-                  : isActive ? 'bv-gw-stage bv-gw-active'
-                  : 'bv-gw-stage';
+    const n          = i + 1;
+    const isDone     = currentStage > n;
+    const isActive   = currentStage === n;
+    const isPast     = isDone || isActive;   // confirmed = stage reached or passed
+    const cls        = isDone ? 'bv-gw-stage bv-gw-done'
+                     : isActive ? 'bv-gw-stage bv-gw-active'
+                     : 'bv-gw-stage';
 
     const dot   = h('div', { class: 'bv-gw-dot' }, isDone ? '✓' : String(n));
     const label = h('div', { class: 'bv-gw-name' }, name);
-    const stage = h('div', { class: cls, title: `Gateway: ${name}` }, dot, label);
 
+    // Date input — confirmed (solid green) for past/active, anticipated (dashed amber) for future
+    const dateVal = (gatewayDates || {})[name] || '';
+    const dateInp = h('input', {
+      class: `bv-gw-date ${isPast ? 'bv-gw-date-confirmed' : 'bv-gw-date-anticipated'}`,
+      type:  'month',
+      value: dateVal,
+      title: `${isPast ? 'Confirmed' : 'Anticipated'} date for ${name} gateway`,
+    });
+    dateInp.addEventListener('click', e => e.stopPropagation());   // don't toggle gateway status
+    dateInp.addEventListener('change', e => updateBibleGatewayDate(catId, name, e.target.value));
+
+    const dateWrap = h('div', { class: 'bv-gw-date-wrap' },
+      dateInp,
+      h('span', { class: `bv-gw-date-lbl ${isPast ? 'bv-gw-date-lbl-confirmed' : ''}` },
+        isPast ? 'Confirmed' : 'Anticipated',
+      ),
+    );
+
+    const stage = h('div', { class: cls, title: `Gateway: ${name}` }, dot, label, dateWrap);
     stage.addEventListener('click', () =>
       updateBibleGateway(catId, isActive ? 0 : n),  // click active stage to deselect
     );
@@ -122,7 +141,7 @@ function buildNode(catId, section, isSummary) {
 
   if (isSummary) {
     const cat = getPanelData().categories.find(c => c.id === catId);
-    node.appendChild(buildGatewayBar(catId, cat?.bible?.gatewayStage || 0));
+    node.appendChild(buildGatewayBar(catId, cat?.bible?.gatewayStage || 0, cat?.bible?.gatewayDates || {}));
   }
 
   return node;

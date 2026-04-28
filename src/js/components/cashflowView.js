@@ -60,6 +60,9 @@ function getMonthLabels(projectStart, numMonths) {
   });
 }
 
+// ── Gateway stages (mirrors bibleView.js) ──────────────────────────────────────
+const GATEWAY_STAGES = ['Grid', 'HoTs', 'Option', 'Planning', 'RTB'];
+
 // ── Colour palette ─────────────────────────────────────────────────────────────
 
 const CAT_COLOURS = [
@@ -145,6 +148,22 @@ export function buildCashflowView(catId) {
   const start       = cf.projectStart || '';
   const labels      = getMonthLabels(start || null, numM);
   const showDetail  = cf.showDetail === true;
+
+  // ── Gateway column markers ─────────────────────────────────────────────────
+  // gwMarkers[monthIdx] = { name, confirmed } — only populated when projectStart is set
+  const gwDates   = cat?.bible?.gatewayDates || {};
+  const gwStage   = cat?.bible?.gatewayStage || 0;
+  const gwMarkers = {};
+  if (start) {
+    const [sy, sm] = start.split('-').map(Number);
+    GATEWAY_STAGES.forEach((name, i) => {
+      const d = gwDates[name];
+      if (!d) return;
+      const [gy, gm] = d.split('-').map(Number);
+      const idx = (gy - sy) * 12 + (gm - sm);
+      if (idx >= 0 && idx < numM) gwMarkers[idx] = { name, confirmed: (i + 1) <= gwStage };
+    });
+  }
 
   // Unique categories in insertion order
   const allCats = [...new Set(consultants.map(c => c.category || 'General').filter(Boolean))];
@@ -295,7 +314,19 @@ export function buildCashflowView(catId) {
 
   // ── Table header ───────────────────────────────────────────────────────────
   const monthThEls = labels.map((lbl, i) => {
-    const th = h('th', { class: `cf-th cf-th-month${i < 2 ? ' cf-th-near' : ''}`, title: `Click to inspect ${lbl}` }, lbl);
+    const gw  = gwMarkers[i];
+    const cls = ['cf-th', 'cf-th-month',
+      i < 2 ? 'cf-th-near' : '',
+      gw ? 'cf-th-gw' : '',
+      gw?.confirmed ? 'cf-gw-confirmed-col' : (gw ? 'cf-gw-anticipated-col' : ''),
+    ].filter(Boolean).join(' ');
+    const th  = h('th', { class: cls, title: gw ? `${gw.confirmed ? 'Confirmed' : 'Anticipated'}: ${gw.name} gateway` : `Click to inspect ${lbl}` });
+    if (gw) {
+      th.appendChild(h('div', {
+        class: `cf-gw-badge cf-gw-badge-${gw.confirmed ? 'confirmed' : 'anticipated'}`,
+      }, gw.name));
+    }
+    th.appendChild(document.createTextNode(lbl));
     th.style.cursor = 'pointer';
     th.addEventListener('click', () => selectMonth(i));
     colHeaders.push(th);
@@ -503,6 +534,13 @@ export function buildCashflowView(catId) {
       });
     });
   }
+
+  // ── Stamp gateway dividers on all column cells ─────────────────────────────
+  Object.entries(gwMarkers).forEach(([idxStr, gw]) => {
+    const mi     = parseInt(idxStr);
+    const colCls = gw.confirmed ? 'cf-gw-confirmed-col' : 'cf-gw-anticipated-col';
+    colCells[mi]?.forEach(cell => cell.classList.add('cf-gw-col', colCls));
+  });
 
   const table = h('table', { class: 'cf-table' }, thead, tbody);
 

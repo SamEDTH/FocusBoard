@@ -2153,6 +2153,59 @@ body.light .bgt-inp[type="date"] { color-scheme: light; }
   font-style: italic;
 }
 
+/* ── Gateway dates (bible view) ── */
+.bv-gw-date-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-top: 7px;
+}
+.bv-gw-date {
+  font-size: 10px;
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 2px 5px;
+  background: var(--surface);
+  color: var(--text2);
+  width: 118px;
+  text-align: center;
+  cursor: pointer;
+}
+.bv-gw-date:focus { outline: none; border-color: var(--primary); }
+.bv-gw-date-confirmed { border-color: #22C55E; color: var(--text); border-width: 1.5px; }
+.bv-gw-date-anticipated { border-color: #F97316; border-style: dashed; }
+.bv-gw-date-lbl {
+  font-size: 9px;
+  color: var(--text4);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.bv-gw-date-lbl-confirmed { color: #16a34a; font-weight: 600; }
+
+/* ── Gateway dividers (cashflow / timeline) ── */
+.cf-gw-col { border-left: 2px solid transparent; }
+.cf-gw-confirmed-col  { border-left: 2px solid #22C55E !important; }
+.cf-gw-anticipated-col { border-left: 2px dashed #F97316 !important; }
+.cf-th-gw {
+  padding-top: 3px !important;
+  vertical-align: bottom;
+}
+.cf-gw-badge {
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-bottom: 3px;
+  white-space: nowrap;
+  text-align: center;
+}
+.cf-gw-badge-confirmed   { background: #dcfce7; color: #15803d; }
+.cf-gw-badge-anticipated { background: #ffedd5; color: #c2410c; }
+
 /* ── Sub-category drag-to-reorder ── */
 .cf-sc-drag-handle {
   display: inline-block;
