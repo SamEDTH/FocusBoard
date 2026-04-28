@@ -6,6 +6,13 @@ html, body { height: 100%; overflow: hidden; }
 body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; font-size: 14px; -webkit-font-smoothing: antialiased; }
 input, select, textarea, button { font-family: inherit; font-size: inherit; }
 button { cursor: pointer; }
+
+/* ── Custom easing curves (Emil Kowalski / animations.dev) ── */
+:root {
+  --ease-out:     cubic-bezier(0.23, 1, 0.32, 1);    /* strong ease-out — entries, opens */
+  --ease-in-out:  cubic-bezier(0.77, 0, 0.175, 1);   /* strong ease-in-out — on-screen motion */
+  --ease-spring:  cubic-bezier(0.32, 0.72, 0, 1);    /* iOS-like drawer / panel */
+}
 textarea { resize: none; }
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -160,16 +167,19 @@ body.light .topbar-search:focus-within { box-shadow: 0 0 0 3px rgba(74,127,255,0
 .main { display: flex; flex: 1; overflow: hidden; }
 
 /* ── Buttons ── */
-.btn { padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; border: 1px solid var(--border2); background: transparent; color: var(--text2); transition: background 0.12s; }
+.btn { padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; border: 1px solid var(--border2); background: transparent; color: var(--text2); transition: background 0.12s, transform 0.1s var(--ease-out); }
 .btn:hover { background: var(--hover); }
+.btn:active { transform: scale(0.97); }
 .btn-primary { background: var(--grad-primary); color: var(--primary-text); border-color: transparent; font-weight: 600; }
 .btn-primary:hover { opacity: 0.88; }
 .btn-primary.active { opacity: 0.7; }
 .btn-sm { padding: 5px 10px; font-size: 12px; border-radius: 6px; }
-.btn-dark { padding: 5px 10px; font-size: 12px; border-radius: 6px; background: var(--grad-primary); color: var(--primary-text); border: none; font-weight: 600; }
+.btn-dark { padding: 5px 10px; font-size: 12px; border-radius: 6px; background: var(--grad-primary); color: var(--primary-text); border: none; font-weight: 600; transition: opacity 0.12s, transform 0.1s var(--ease-out); }
 .btn-dark:hover { opacity: 0.88; }
-.btn-ghost { padding: 5px 10px; font-size: 12px; border-radius: 6px; background: transparent; color: var(--text2); border: 1px solid var(--border2); }
+.btn-dark:active { transform: scale(0.97); }
+.btn-ghost { padding: 5px 10px; font-size: 12px; border-radius: 6px; background: transparent; color: var(--text2); border: 1px solid var(--border2); transition: background 0.12s, transform 0.1s var(--ease-out); }
 .btn-ghost:hover { background: var(--hover); }
+.btn-ghost:active { transform: scale(0.97); }
 
 /* ══════════════════════════════════════════════
    SIDEBAR — no right border; bg shift separates
@@ -179,7 +189,7 @@ body.light .topbar-search:focus-within { box-shadow: 0 0 0 3px rgba(74,127,255,0
   background: var(--sidebar);
   display: flex; flex-direction: column; padding: 12px 8px; gap: 2px;
   overflow-y: auto; overflow-x: hidden;
-  transition: width 0.22s ease, padding 0.22s ease;
+  transition: width 0.22s var(--ease-spring), padding 0.22s var(--ease-spring);
   position: relative;
 }
 .sidebar.collapsed { width: 0 !important; padding-left: 0; padding-right: 0; }
@@ -282,9 +292,10 @@ body.is-dragging .sub-item { padding-top: 9px; padding-bottom: 9px; transition: 
 .filter-chip {
   padding: 4px 14px; border-radius: 20px; font-size: 12px;
   border: 1px solid var(--border); background: transparent; color: var(--text3); cursor: pointer;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, transform 0.1s var(--ease-out);
 }
 .filter-chip:hover { border-color: var(--border2); color: var(--text2); background: var(--hover); }
+.filter-chip:active { transform: scale(0.96); }
 .filter-chip.active {
   background: rgba(132,173,255,0.1);
   color: var(--primary);
@@ -364,11 +375,11 @@ body.light .filter-chip.active {
   border-radius: 12px; padding: 12px 14px; margin-bottom: 8px;
   box-shadow: var(--shadow-card);
   border: 1px solid rgba(38, 38, 38, 0.5);
-  transition: box-shadow 0.15s, transform 0.1s, border-color 0.15s;
+  transition: box-shadow 0.15s var(--ease-out), transform 0.12s var(--ease-out), border-color 0.15s;
   cursor: grab; user-select: none;
 }
 body.light .task-card { border-color: rgba(0,0,0,0.08); }
-.task-card:hover { box-shadow: var(--shadow-float); transform: translateY(-1px); border-color: rgba(56,189,248,0.3); }
+.task-card:hover { box-shadow: var(--shadow-float); border-color: rgba(56,189,248,0.3); }
 body.light .task-card:hover { border-color: rgba(2,132,199,0.25); }
 .task-card.expanded { border-color: var(--border2); }
 .task-card.workflow { border-left: 2px solid var(--primary); }
@@ -387,9 +398,9 @@ body.light .task-card:hover { border-color: rgba(2,132,199,0.25); }
   background: var(--card); border-top: 2px solid; border-radius: 12px;
   padding: 14px 16px; flex: 1; min-width: 90px;
   box-shadow: var(--shadow-card);
-  transition: box-shadow 0.15s, transform 0.1s;
+  transition: box-shadow 0.15s var(--ease-out), transform 0.1s var(--ease-out);
 }
-.summary-card:hover { box-shadow: var(--shadow-float); transform: translateY(-1px); }
+.summary-card:hover { box-shadow: var(--shadow-float); }
 .summary-count {
   font-family: 'Manrope', sans-serif;
   font-size: 28px; font-weight: 800; letter-spacing: -0.04em; line-height: 1; margin-bottom: 4px;
@@ -424,7 +435,7 @@ body.light .task-card:hover { border-color: rgba(2,132,199,0.25); }
    DRAG & DROP
 ══════════════════════════════════════════════ */
 @keyframes ghostIn {
-  from { opacity: 0; transform: scaleY(0.4); }
+  from { opacity: 0; transform: scaleY(0.96); }   /* nothing appears from nothing */
   to   { opacity: 1; transform: scaleY(1); }
 }
 @keyframes dropSettle {
@@ -435,10 +446,10 @@ body.light .task-card:hover { border-color: rgba(2,132,199,0.25); }
 .drag-ghost {
   border: 2px dashed var(--primary); border-radius: 12px;
   background: rgba(132,173,255,0.05); margin-bottom: 8px;
-  pointer-events: none; animation: ghostIn 0.14s ease-out;
+  pointer-events: none; animation: ghostIn 0.15s var(--ease-out);
   transform-origin: top;
 }
-.task-card.just-dropped { animation: dropSettle 0.6s ease-out forwards; }
+.task-card.just-dropped { animation: dropSettle 0.25s var(--ease-out) forwards; }
 
 .card-top { display: flex; align-items: center; gap: 8px; }
 .drag-handle { color: var(--text4); font-size: 15px; cursor: grab; flex-shrink: 0; user-select: none; line-height: 1; padding-right: 2px; }
@@ -461,18 +472,20 @@ body.light .task-card:hover { border-color: rgba(2,132,199,0.25); }
   border: 1px solid var(--border2); background: var(--surface3);
   display: flex; align-items: center; justify-content: center;
   font-size: 13px; line-height: 1; color: var(--text3);
-  transition: transform 0.3s ease-in-out, background 0.15s;
+  transition: transform 0.2s var(--ease-out), background 0.12s, scale 0.1s var(--ease-out);
 }
 .expand-btn:hover { background: var(--hover); }
+.expand-btn:active { scale: 0.93; }
 .expand-btn.open { transform: rotate(180deg); }
 
 .checkbox {
   width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0;
   border: 1.5px solid var(--border3); background: transparent; cursor: pointer;
   display: flex; align-items: center; justify-content: center; margin-top: 2px;
-  transition: all 0.15s;
+  transition: border-color 0.15s var(--ease-out), background 0.15s var(--ease-out), transform 0.1s var(--ease-out);
 }
 .checkbox:hover { border-color: var(--secondary); }
+.checkbox:active { transform: scale(0.88); }
 .checkbox.checked { background: var(--secondary); border-color: var(--secondary); }
 .wf-icon {
   width: 16px; height: 16px; border-radius: 3px;
@@ -736,7 +749,7 @@ body.light .pg-input:focus { box-shadow: 0 0 0 3px rgba(74,127,255,0.12); }
   font-size: 14px; display: flex; align-items: center; justify-content: center; line-height: 1;
 }
 .fp-dates { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 12px; }
-.fp-date-btn { padding: 4px 10px; border-radius: 20px; font-size: 12px; border: 1px solid var(--border2); background: transparent; color: var(--text3); cursor: pointer; transition: all 0.1s; }
+.fp-date-btn { padding: 4px 10px; border-radius: 20px; font-size: 12px; border: 1px solid var(--border2); background: transparent; color: var(--text3); cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s, transform 0.1s var(--ease-out); }
 .fp-date-btn:hover { background: var(--hover); color: var(--text2); }
 .fp-date-btn.active { background: var(--grad-primary); color: var(--primary-text); border-color: transparent; font-weight: 600; }
 .fp-status { font-size: 12px; color: var(--text3); margin-bottom: 8px; min-height: 18px; }
@@ -791,9 +804,10 @@ body.light .pg-input:focus { box-shadow: 0 0 0 3px rgba(74,127,255,0.12); }
 .fp-slot-btn {
   padding: 5px 12px; border-radius: 8px; font-size: 12px;
   border: 1px solid var(--border2); background: var(--surface); color: var(--text2);
-  cursor: pointer; transition: all 0.12s;
+  cursor: pointer; transition: background 0.12s var(--ease-out), color 0.12s, border-color 0.12s, transform 0.1s var(--ease-out);
 }
 .fp-slot-btn:hover { background: var(--primary); color: var(--primary-text); border-color: transparent; }
+.fp-slot-btn:active { transform: scale(0.96); }
 
 /* ══════════════════════════════════════════════
    INLINE EDIT FORM
@@ -919,8 +933,8 @@ body.light .pg-input:focus { box-shadow: 0 0 0 3px rgba(74,127,255,0.12); }
 /* ── Toggle switch ── */
 .toggle { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
 .toggle input { opacity: 0; width: 0; height: 0; }
-.toggle-slider { position: absolute; inset: 0; border-radius: 24px; background: var(--surface3); cursor: pointer; transition: 0.2s; }
-.toggle-slider::before { content: ''; position: absolute; width: 18px; height: 18px; border-radius: 50%; background: var(--text4); top: 3px; left: 3px; transition: 0.2s; }
+.toggle-slider { position: absolute; inset: 0; border-radius: 24px; background: var(--surface3); cursor: pointer; transition: background 0.18s var(--ease-out); }
+.toggle-slider::before { content: ''; position: absolute; width: 18px; height: 18px; border-radius: 50%; background: var(--text4); top: 3px; left: 3px; transition: transform 0.18s var(--ease-spring), background 0.18s; }
 .toggle input:checked + .toggle-slider { background: var(--primary); }
 .toggle input:checked + .toggle-slider::before { transform: translateX(20px); background: #fff; }
 .more-btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -1072,7 +1086,7 @@ body.light .wft-send-badge { background: #eaf0ff; color: #3060cc; }
 .wft-send-chase-form { background: var(--surface3); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
 .wft-del-btn { width: 20px; height: 20px; border-radius: 50%; border: none; background: transparent; color: var(--text4); font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; }
 .wft-del-btn:hover { background: rgba(255,113,108,0.12); color: var(--error); }
-.wft-toggle-btn { flex-shrink: 0; width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--border2); background: transparent; display: flex; align-items: center; justify-content: center; color: var(--text4); cursor: pointer; transition: transform 0.22s ease; }
+.wft-toggle-btn { flex-shrink: 0; width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--border2); background: transparent; display: flex; align-items: center; justify-content: center; color: var(--text4); cursor: pointer; transition: transform 0.18s var(--ease-out), background 0.12s; }
 .wft-toggle-btn:hover { background: var(--hover); }
 .wft-toggle-btn.open { transform: rotate(180deg); }
 
@@ -1355,7 +1369,7 @@ body.light .wft-cl-badge.all-done { color: #1a6e49; background: #e6faf2; border-
   display: flex; align-items: center; justify-content: center;
   font-size: 12px; font-weight: 700;
   background: var(--surface); color: var(--text3);
-  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+  transition: transform 0.15s var(--ease-out), border-color 0.15s, box-shadow 0.15s;
 }
 .bv-gw-name {
   font-size: 11px; color: var(--text3); white-space: nowrap; font-weight: 500;
@@ -1375,12 +1389,10 @@ body.light .wft-cl-badge.all-done { color: #1a6e49; background: #e6faf2; border-
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 18%, transparent);
 }
 .bv-gw-active .bv-gw-name { color: var(--primary); font-weight: 700; }
-/* Hover */
+/* Hover (transform-based hover lives in @media (hover:hover) block at end of file) */
 .bv-gw-stage:not(.bv-gw-done):not(.bv-gw-active):hover .bv-gw-dot {
   border-color: var(--primary); color: var(--primary);
 }
-.bv-gw-done:hover .bv-gw-dot { transform: scale(1.08); }
-.bv-gw-active:hover .bv-gw-dot { transform: scale(1.1); }
 
 /* Add section button */
 .bv-add-section-btn {
@@ -2244,4 +2256,44 @@ body.light .bgt-inp[type="date"] { color-scheme: light; }
   opacity: 0.85;
   max-width: none;
   overflow: visible;
+}
+
+/* ══════════════════════════════════════════════
+   HOVER — guard transform-based hovers so they
+   don't misfire as taps on touch devices
+══════════════════════════════════════════════ */
+@media (hover: hover) and (pointer: fine) {
+  .task-card:hover    { box-shadow: var(--shadow-float); transform: translateY(-1px); border-color: rgba(56,189,248,0.3); }
+  body.light .task-card:hover { border-color: rgba(2,132,199,0.25); }
+  .summary-card:hover { box-shadow: var(--shadow-float); transform: translateY(-1px); }
+  .priority-pick-btn:hover { transform: scale(1.18); }
+  .bv-gw-done:hover .bv-gw-dot   { transform: scale(1.08); }
+  .bv-gw-active:hover .bv-gw-dot { transform: scale(1.1); }
+  .bv-gw-stage:hover .bv-gw-dot  { transform: scale(1.05); }
+}
+
+/* Remove duplicate non-guarded versions that would fire on touch */
+.task-card:hover    { }   /* intentionally empty — see @media block above */
+.summary-card:hover { }
+
+/* ══════════════════════════════════════════════
+   REDUCED MOTION — respect user preference.
+   Keep opacity/colour transitions; strip movement.
+══════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  /* Exception: keep very fast opacity fades that aid comprehension */
+  .bv-node-controls,
+  .card-action-btn,
+  .cat-action-btn,
+  .cl-del,
+  .cf-del {
+    transition-duration: 0.12s !important;
+  }
+  /* No card lift on hover */
+  .task-card:hover, .summary-card:hover { transform: none; }
 }
