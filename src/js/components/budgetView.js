@@ -419,8 +419,9 @@ async function parseXLSXFile(file) {
     else if ((hdrIdx = detectHeaderRow(allRows, INV_KWS)) >= 0) type = 'invoices';
 
     let objects = [];
+    let hdrs    = [];
     if (hdrIdx >= 0) {
-      const hdrs = allRows[hdrIdx].map(c => c.toLowerCase().replace(/[£%?/]+/g, '').trim());
+      hdrs = allRows[hdrIdx].map(c => c.toLowerCase().replace(/[£%?/]+/g, '').trim());
 
       // Columns whose values must be plain numbers (strip £, commas, etc.)
       const NUM_KEYS  = new Set(['quote', 'fee', 'net', 'vat', 'amount', 'contingency', 'cont', 'total', 'balance', 'paid', 'invoiced']);
