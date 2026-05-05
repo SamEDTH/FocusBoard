@@ -73,8 +73,10 @@ export async function loadBoard(userId) {
     .select('data')
     .eq('user_id', userId)
     .maybeSingle();
-  if (error) { console.error('[supabase] loadBoard:', error.message); return null; }
-  return data?.data ?? null;
+  // Throw on error so initFromSupabase treats it as a failure (fallback to local)
+  // rather than silently returning null and mistaking it for a brand-new user.
+  if (error) { console.error('[supabase] loadBoard:', error.message); throw new Error(error.message); }
+  return data?.data ?? null; // null only when the user genuinely has no saved board yet
 }
 
 export async function saveBoard(userId, boardData) {
