@@ -20448,7 +20448,7 @@ ${suffix}`;
     const { data, error } = await supabase.from("boards").select("data").eq("user_id", userId).maybeSingle();
     if (error) {
       console.error("[supabase] loadBoard:", error.message);
-      return null;
+      throw new Error(error.message);
     }
     return data?.data ?? null;
   }
@@ -21177,37 +21177,16 @@ ${suffix}`;
     const dataAtStart = S.data;
     try {
       const withTimeout = (promise, ms) => Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
-      const remote = await withTimeout(loadBoard(userId), 1e4);
+      const remote = await withTimeout(loadBoard(userId), 15e3);
       if (S.data !== dataAtStart) {
         saveBoard(userId, S.data).catch((e) => console.warn("[supabase] post-init save failed:", e.message));
       } else if (remote) {
         S.data = remote;
         saveData(remote);
-      } else {
-        const local = (() => {
-          try {
-            const r = localStorage.getItem(STORAGE_KEY);
-            return r ? JSON.parse(r) : null;
-          } catch {
-            return null;
-          }
-        })();
-        if (local) {
-          S.data = local;
-          saveBoard(userId, local).catch((e) => console.warn("[supabase] initial save failed:", e.message));
-        }
       }
     } catch (err) {
-      console.warn("[supabase] initFromSupabase failed, falling back to local data:", err.message);
-      const local = (() => {
-        try {
-          const r = localStorage.getItem(STORAGE_KEY);
-          return r ? JSON.parse(r) : null;
-        } catch {
-          return null;
-        }
-      })();
-      if (local && S.data === dataAtStart) S.data = local;
+      console.warn("[supabase] initFromSupabase failed:", err.message);
+      S.syncError = "Could not load your board \u2014 refresh to try again";
     }
     S.loading = false;
     renderFn();
@@ -21627,6 +21606,25 @@ ${suffix}`;
     const cat = newData[S.panel].categories.find((c) => c.id === catId);
     const sec = cat?.bible?.sections?.find((s) => s.id === sectionId);
     if (sec) sec.rows.push({ id: uid(), label: "", value: "" });
+    upd(newData);
+  }
+  function batchUpdateBibleRows(catId, updates) {
+    const newData = JSON.parse(JSON.stringify(S.data));
+    const cat = newData[S.panel].categories.find((c) => c.id === catId);
+    if (!cat?.bible?.sections) return;
+    updates.forEach(({ sectionId, rowId, value }) => {
+      const sec = cat.bible.sections.find((s) => s.id === sectionId);
+      const row = sec?.rows?.find((r) => r.id === rowId);
+      if (!row) return;
+      row.value = value;
+      const lbl = row.label?.toLowerCase().trim();
+      const invField = lbl === "project name" || lbl === "project" ? "project" : lbl === "spv name" || lbl === "spv" ? "spvName" : lbl === "dm" || lbl === "development manager" || lbl === "project manager" ? "dm" : null;
+      if (invField && cat?.budget?.invoices) {
+        cat.budget.invoices.forEach((inv) => {
+          inv[invField] = value ?? "";
+        });
+      }
+    });
     upd(newData);
   }
   function updateBibleRow(catId, sectionId, rowId, patch) {
@@ -24786,6 +24784,249 @@ ${suffix}`;
   }
 
   // src/js/components/bibleView.js
+  async function loadSheetJS() {
+    if (window.XLSX) return window.XLSX;
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+      s.onload = () => resolve(window.XLSX);
+      s.onerror = () => reject(new Error("Could not load Excel parser \u2014 check your connection."));
+      document.head.appendChild(s);
+    });
+  }
+  var bvNorm = (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  var BIBLE_FIELD_ALIASES = [
+    { label: "Project Name", aliases: ["project name", "scheme name", "development name", "project title"] },
+    { label: "SPV Name", aliases: ["spv name", "spv", "special purpose vehicle", "company name"] },
+    { label: "Project Type", aliases: ["project type", "technology type", "development type", "technology"] },
+    { label: "Connection (MW)", aliases: ["connection mw", "export capacity mw", "installed capacity", "capacity mw", "mw capacity"] },
+    { label: "Connection Date", aliases: ["connection date", "grid connection date", "energisation date"] },
+    { label: "Trigger Date", aliases: ["trigger date", "trigger"] },
+    { label: "DM", aliases: ["dm", "development manager", "project manager", "development lead"] },
+    { label: "Site Address", aliases: ["site address", "property address", "site location"] },
+    { label: "Grid Reference", aliases: ["grid reference", "grid ref", "ngr", "national grid reference", "os grid reference", "os ref"] },
+    { label: "Local Planning Authority", aliases: ["local planning authority", "lpa", "planning authority", "local authority"] },
+    { label: "Parish Council", aliases: ["parish council", "parish"] },
+    { label: "Site Access", aliases: ["site access", "access route", "access road"] },
+    { label: "Description of Development", aliases: ["description of development", "development description", "scheme description", "proposal description"] },
+    { label: "Residential Receptors", aliases: ["residential receptors", "nearest receptors", "nearest dwelling", "dwellings"] },
+    { label: "Topography", aliases: ["topography", "terrain", "ground levels"] },
+    { label: "Public Access Routes", aliases: ["public access routes", "public rights of way", "prow", "footpaths", "rights of way"] },
+    { label: "Cumulative Development", aliases: ["cumulative development", "cumulative impact", "nearby development"] },
+    { label: "Point of Connection (POC)", aliases: ["point of connection", "poc", "grid poc", "connection point", "grid connection point"] },
+    { label: "Connection Type", aliases: ["connection type", "grid connection type", "type of connection"] },
+    { label: "Distance to POC", aliases: ["distance to poc", "distance to connection", "cable length", "route length km"] },
+    { label: "Cable Route", aliases: ["cable route", "grid cable route", "cable corridor"] },
+    { label: "Batteries", aliases: ["batteries", "battery storage", "bess", "energy storage"] },
+    { label: "Fencing", aliases: ["fencing", "security fencing", "perimeter fencing"] },
+    { label: "Substation / Switchgear", aliases: ["substation switchgear", "substation", "switchgear", "onsite substation"] },
+    { label: "Option Period", aliases: ["option period", "option term", "option duration"] },
+    { label: "Option Fee", aliases: ["option fee", "option payment", "option consideration"] },
+    { label: "Option Fee Due", aliases: ["option fee due", "option renewal date", "option expiry"] },
+    { label: "Rent", aliases: ["annual rent", "lease rent", "operational rent", "rent pa"] },
+    { label: "Expansion Rent", aliases: ["expansion rent"] },
+    { label: "Tenant", aliases: ["tenant", "lessee", "tenant name"] },
+    { label: "Planning Submission", aliases: ["planning submission", "planning application date", "submission date", "pa date", "planning submission date"] },
+    { label: "Planning Consent", aliases: ["planning consent", "planning permission", "consent date", "planning decision date", "approval date"] },
+    { label: "Financial Investment Decision", aliases: ["financial investment decision", "fid", "investment decision"] },
+    { label: "RTB", aliases: ["rtb", "right to build", "notice to proceed", "ntp"] }
+  ];
+  function matchBibleField(cellText) {
+    const n = bvNorm(cellText);
+    if (!n || n.length > 80 || /^\d[\d\s.,£%]*$/.test(n)) return null;
+    for (const entry of BIBLE_FIELD_ALIASES) {
+      for (const alias of entry.aliases) {
+        if (n === alias) return { label: entry.label, score: 1 };
+        if (n.startsWith(alias) && n.length <= alias.length + 4)
+          return { label: entry.label, score: 0.9 };
+        if (alias.length >= 5 && n.includes(alias) && alias.length / n.length >= 0.8)
+          return { label: entry.label, score: 0.8 };
+      }
+    }
+    return null;
+  }
+  function projectNameFromFilename(filename) {
+    const base = filename.replace(/\.(xlsx?|csv)$/i, "").replace(/\s*\(\d+\)\s*$/, "").trim();
+    const dashIdx = base.indexOf(" - ");
+    return dashIdx > 3 ? base.substring(0, dashIdx).trim() : null;
+  }
+  function scanSheetsForBibleData(sheets) {
+    const found = /* @__PURE__ */ new Map();
+    sheets.forEach(({ name: sheetName, rows }) => {
+      rows.forEach((row, ri) => {
+        row.forEach((cell, ci) => {
+          const text = String(cell ?? "").trim();
+          if (!text) return;
+          const match = matchBibleField(text);
+          if (!match) return;
+          const candidates = [
+            { val: row[ci + 1], dir: "right" },
+            { val: rows[ri + 1]?.[ci], dir: "below" }
+          ];
+          for (const { val } of candidates) {
+            const v = String(val ?? "").trim();
+            if (!v || v === text || matchBibleField(v)) continue;
+            const existing = found.get(match.label);
+            if (!existing || match.score > existing.score) {
+              found.set(match.label, {
+                fieldLabel: match.label,
+                value: v,
+                sheet: sheetName,
+                score: match.score
+              });
+            }
+            break;
+          }
+        });
+      });
+    });
+    return [...found.values()].sort((a, b) => b.score - a.score);
+  }
+  function applyBibleMatches(catId, matches) {
+    const cat = getPanelData().categories.find((c) => c.id === catId);
+    const sections = cat?.bible?.sections || [];
+    const updates = [];
+    matches.forEach(({ fieldLabel, value }) => {
+      for (const sec of sections) {
+        const row = sec.rows.find((r) => bvNorm(r.label) === bvNorm(fieldLabel));
+        if (row) {
+          updates.push({ sectionId: sec.id, rowId: row.id, value });
+          break;
+        }
+      }
+    });
+    if (updates.length) batchUpdateBibleRows(catId, updates);
+  }
+  function showBibleImportPreview(catId, scanned, filenameProjectName) {
+    const all = [];
+    if (filenameProjectName && !scanned.some((m) => m.fieldLabel === "Project Name")) {
+      all.push({ fieldLabel: "Project Name", value: filenameProjectName, sheet: "filename", score: 0.9 });
+    }
+    all.push(...scanned);
+    if (!all.length) {
+      alert('No Bible fields detected in this file.\n\nThe scanner looks for labelled cells \u2014 e.g. a cell reading "Site Address" with its value in the cell to the right or below.');
+      return;
+    }
+    const overlay = h("div", { class: "imp-overlay" });
+    const close = () => overlay.remove();
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) close();
+    });
+    const selected = new Set(all.map((m) => m.fieldLabel));
+    const applyBtn = h("button", { class: "imp-btn-confirm" }, `Apply ${all.length} fields`);
+    const refreshBtn = () => {
+      const n = selected.size;
+      applyBtn.textContent = n ? `Apply ${n} field${n !== 1 ? "s" : ""}` : "Nothing selected";
+      applyBtn.disabled = n === 0;
+    };
+    const tableRows = all.map((m) => {
+      const cb = h("input", { type: "checkbox" });
+      cb.checked = true;
+      cb.addEventListener("change", () => {
+        cb.checked ? selected.add(m.fieldLabel) : selected.delete(m.fieldLabel);
+        refreshBtn();
+      });
+      const sourceBadge = h("span", {
+        class: m.sheet === "filename" ? "imp-type-badge imp-type-none" : "imp-type-badge imp-type-cons",
+        style: { fontSize: "10px" }
+      }, m.sheet === "filename" ? "filename" : m.sheet);
+      return h(
+        "tr",
+        null,
+        h("td", { style: { width: "32px", textAlign: "center" } }, cb),
+        h("td", null, h("span", { style: { fontWeight: 500, color: "var(--text)" } }, m.fieldLabel)),
+        h("td", null, h("span", { style: { color: "var(--text2)" } }, m.value)),
+        h("td", null, sourceBadge)
+      );
+    });
+    applyBtn.addEventListener("click", () => {
+      const toApply = all.filter((m) => selected.has(m.fieldLabel));
+      applyBibleMatches(catId, toApply);
+      close();
+    });
+    const modal = h(
+      "div",
+      { class: "imp-dialog" },
+      h(
+        "div",
+        { class: "imp-hdr" },
+        h(
+          "div",
+          { class: "imp-hdr-left" },
+          h("div", { class: "imp-title" }, `${all.length} field${all.length !== 1 ? "s" : ""} detected`),
+          h("div", { class: "imp-filename" }, "Untick any you do not want to overwrite, then click Apply")
+        ),
+        h("button", { class: "imp-x", onClick: close }, "\xD7")
+      ),
+      h(
+        "div",
+        { class: "imp-scroll" },
+        h(
+          "table",
+          { class: "imp-table" },
+          h("thead", null, h(
+            "tr",
+            null,
+            h("th", null, ""),
+            h("th", null, "Bible field"),
+            h("th", null, "Value found"),
+            h("th", null, "Source")
+          )),
+          h("tbody", null, ...tableRows)
+        )
+      ),
+      h(
+        "div",
+        { class: "imp-footer" },
+        h("div", { class: "imp-summary" }, `${all.length} field${all.length !== 1 ? "s" : ""} found across ${new Set(all.map((m) => m.sheet)).size} source${new Set(all.map((m) => m.sheet)).size !== 1 ? "s" : ""}`),
+        h(
+          "div",
+          { class: "imp-footer-btns" },
+          h("button", { class: "imp-btn-cancel", onClick: close }, "Cancel"),
+          applyBtn
+        )
+      )
+    );
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+  }
+  function buildBibleImportBtn(catId) {
+    const btn = h("button", { class: "bv-import-btn", title: "Scan an Excel file and auto-fill Bible fields" }, "\u21A7 Import from Excel");
+    btn.addEventListener("click", () => {
+      const fi = document.createElement("input");
+      fi.type = "file";
+      fi.accept = ".xlsx,.xls";
+      fi.addEventListener("change", async () => {
+        const file = fi.files?.[0];
+        if (!file) return;
+        const orig = btn.textContent;
+        btn.textContent = "Scanning\u2026";
+        btn.disabled = true;
+        try {
+          const XLSX = await loadSheetJS();
+          const buf = await file.arrayBuffer();
+          const wb = XLSX.read(buf, { type: "array", cellFormula: false, cellDates: false });
+          const sheets = wb.SheetNames.map((name) => {
+            const ws = wb.Sheets[name];
+            if (!ws["!ref"]) return { name, rows: [] };
+            const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
+            return { name, rows: rows.map((row) => row.map((v) => String(v ?? "").trim())) };
+          });
+          const scanned = scanSheetsForBibleData(sheets);
+          const filenameHint = projectNameFromFilename(file.name);
+          showBibleImportPreview(catId, scanned, filenameHint);
+        } catch (err) {
+          alert(`Could not scan Excel file:
+${err.message}`);
+        } finally {
+          btn.textContent = orig;
+          btn.disabled = false;
+        }
+      });
+      fi.click();
+    });
+    return btn;
+  }
   var INVOICE_LINKED = /* @__PURE__ */ new Set(["project name", "spv name", "dm", "development manager", "project manager"]);
   var isLinked = (label) => INVOICE_LINKED.has(label?.trim().toLowerCase());
   function buildRow(catId, sectionId, row) {
@@ -24965,11 +25206,15 @@ ${suffix}`;
     const grid = h("div", { class: "bv-grid" });
     sections.forEach((sec, i) => grid.appendChild(buildNode(catId, sec, i === sIdx)));
     grid.appendChild(buildContactsNode(catId, contacts));
-    const addBtn = h("button", { class: "bv-add-section-btn" }, "+ Add section");
-    addBtn.addEventListener("click", () => addBibleSection(catId));
+    const toolbar = h(
+      "div",
+      { class: "bv-toolbar" },
+      h("button", { class: "bv-add-section-btn", onClick: () => addBibleSection(catId) }, "+ Add section"),
+      buildBibleImportBtn(catId)
+    );
     const frag = document.createDocumentFragment();
     frag.appendChild(grid);
-    frag.appendChild(addBtn);
+    frag.appendChild(toolbar);
     return frag;
   }
 
@@ -25128,16 +25373,20 @@ ${suffix}`;
     }
     return s;
   }
-  function get2(row, ...candidates) {
+  function matchHeader(arr, candidates) {
     for (const c of candidates) {
       const cLow = c.toLowerCase();
-      const k = Object.keys(row).find((k2) => {
-        const kLow = k2.toLowerCase();
-        return kLow === cLow || kLow.includes(cLow);
+      const found = arr.find((h2) => {
+        const hLow = h2.toLowerCase();
+        return hLow === cLow || hLow.includes(cLow);
       });
-      if (k !== void 0 && row[k] !== void 0) return row[k];
+      if (found !== void 0) return found;
     }
     return "";
+  }
+  function get2(row, ...candidates) {
+    const k = matchHeader(Object.keys(row), candidates);
+    return k !== "" && row[k] !== void 0 ? row[k] : "";
   }
   function showImportPreview({ title, filename, csvHeaders, rows, columns, onConfirm }) {
     const overlay = h("div", { class: "imp-overlay" });
@@ -25286,7 +25535,7 @@ ${suffix}`;
     });
     return btn;
   }
-  async function loadSheetJS() {
+  async function loadSheetJS2() {
     if (window.XLSX) return window.XLSX;
     return new Promise((resolve, reject) => {
       const s = document.createElement("script");
@@ -25304,7 +25553,7 @@ ${suffix}`;
     return -1;
   }
   async function parseXLSXFile(file) {
-    const XLSX = await loadSheetJS();
+    const XLSX = await loadSheetJS2();
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array", cellFormula: false, cellDates: true });
     const CONS_KWS = ["party", "quote", "contingency"];
@@ -25323,18 +25572,19 @@ ${suffix}`;
       if ((hdrIdx = detectHeaderRow(allRows, CONS_KWS)) >= 0) type = "consultants";
       else if ((hdrIdx = detectHeaderRow(allRows, INV_KWS)) >= 0) type = "invoices";
       let objects = [];
+      let hdrs = [];
       if (hdrIdx >= 0) {
-        const hdrs2 = allRows[hdrIdx].map((c) => c.toLowerCase().replace(/[£%?/]+/g, "").trim());
+        hdrs = allRows[hdrIdx].map((c) => c.toLowerCase().replace(/[£%?/]+/g, "").trim());
         const NUM_KEYS = /* @__PURE__ */ new Set(["quote", "fee", "net", "vat", "amount", "contingency", "cont", "total", "balance", "paid", "invoiced"]);
         const DATE_KEYS = /* @__PURE__ */ new Set(["date", "due", "accounts", "paid date", "accounts date", "invoice date"]);
-        const cleaners = hdrs2.map((h2) => {
+        const cleaners = hdrs.map((h2) => {
           if (NUM_KEYS.has(h2) || [...NUM_KEYS].some((k) => h2.includes(k))) return cleanNumber;
           if (DATE_KEYS.has(h2) || [...DATE_KEYS].some((k) => h2.includes(k))) return cleanDate;
           return (v) => v;
         });
         objects = allRows.slice(hdrIdx + 1).filter((r) => r.some((c) => c !== "")).map((r) => {
           const obj = {};
-          hdrs2.forEach((h2, i) => {
+          hdrs.forEach((h2, i) => {
             obj[h2] = cleaners[i](r[i] ?? "");
           });
           return obj;
@@ -25345,50 +25595,32 @@ ${suffix}`;
   }
   var FIELD_DEFS = {
     consultants: [
-      { key: "party", label: "Party", required: true, candidates: ["party", "firm", "name"], clean: (v) => v },
-      { key: "company", label: "Company", required: false, candidates: ["company"], clean: (v) => v },
-      { key: "contact", label: "Contact", required: false, candidates: ["contact", "email", "e-mail", "email address", "person"], clean: (v) => v },
-      { key: "appointed", label: "Appointed", required: false, candidates: ["appointed"], clean: (v) => v || "\u2014" },
-      { key: "discipline", label: "Discipline", required: false, candidates: ["discipline"], clean: (v) => v },
-      { key: "category", label: "Category", required: false, candidates: ["category", "cat"], clean: (v) => v },
-      { key: "subCategory", label: "Sub-Category", required: false, candidates: ["sub category", "subcategory", "sub-category"], clean: (v) => v },
-      { key: "quote", label: "Quote \xA3", required: false, candidates: ["quote", "fee"], clean: (v) => cleanNumber(v) },
-      { key: "contingencyPct", label: "Cont %", required: false, candidates: ["contingency", "cont"], clean: (v) => normaliseContingency(cleanNumber(v)) },
-      { key: "comments", label: "Comments", required: false, candidates: ["comments", "notes", "comment"], clean: (v) => v }
+      { key: "party", label: "Party", required: true, candidates: ["party", "firm", "name"] },
+      { key: "company", label: "Company", required: false, candidates: ["company"] },
+      { key: "contact", label: "Contact", required: false, candidates: ["contact", "email", "e-mail", "email address", "person"] },
+      { key: "appointed", label: "Appointed", required: false, candidates: ["appointed"] },
+      { key: "discipline", label: "Discipline", required: false, candidates: ["discipline"] },
+      { key: "category", label: "Category", required: false, candidates: ["category", "cat"] },
+      { key: "subCategory", label: "Sub-Category", required: false, candidates: ["sub category", "subcategory", "sub-category"] },
+      { key: "quote", label: "Quote \xA3", required: false, candidates: ["quote", "fee"] },
+      { key: "contingencyPct", label: "Cont %", required: false, candidates: ["contingency", "cont"] },
+      { key: "comments", label: "Comments", required: false, candidates: ["comments", "notes", "comment"] }
     ],
     invoices: [
-      { key: "party", label: "Party", required: true, candidates: ["party", "firm", "supplier", "vendor"], clean: (v) => v },
-      { key: "invoiceNumber", label: "Invoice #", required: false, candidates: ["invoice #", "invoice number", "inv #", "inv no"], clean: (v) => v },
-      { key: "invoiceDate", label: "Invoice Date", required: false, candidates: ["invoice date", "date"], clean: cleanDate },
-      { key: "documentType", label: "Doc Type", required: false, candidates: ["document type", "doc type", "type", "document"], clean: (v) => v || "Invoice" },
-      { key: "net", label: "Net \xA3", required: false, candidates: ["net value", "net", "amount", "ex vat", "excl vat"], clean: cleanNumber },
-      { key: "vat", label: "VAT \xA3", required: false, candidates: ["vat"], clean: cleanNumber },
-      { key: "status", label: "Status", required: false, candidates: ["status"], clean: (v) => v || "Pending" },
-      { key: "category", label: "Category", required: false, candidates: ["category", "cat"], clean: (v) => v },
-      { key: "dueDate", label: "Due Date", required: false, candidates: ["due date", "due"], clean: cleanDate },
-      { key: "accountsDate", label: "Accounts Date", required: false, candidates: ["accounts date", "accounts"], clean: cleanDate },
-      { key: "paidDate", label: "Paid Date", required: false, candidates: ["paid date", "paid"], clean: cleanDate },
-      { key: "comment", label: "Comment", required: false, candidates: ["comment", "comments", "notes"], clean: (v) => v }
+      { key: "party", label: "Party", required: true, candidates: ["party", "firm", "supplier", "vendor"] },
+      { key: "invoiceNumber", label: "Invoice #", required: false, candidates: ["invoice #", "invoice number", "inv #", "inv no"] },
+      { key: "invoiceDate", label: "Invoice Date", required: false, candidates: ["invoice date", "date"] },
+      { key: "documentType", label: "Doc Type", required: false, candidates: ["document type", "doc type", "type", "document"] },
+      { key: "net", label: "Net \xA3", required: false, candidates: ["net value", "net", "amount", "ex vat", "excl vat"] },
+      { key: "vat", label: "VAT \xA3", required: false, candidates: ["vat"] },
+      { key: "status", label: "Status", required: false, candidates: ["status"] },
+      { key: "category", label: "Category", required: false, candidates: ["category", "cat"] },
+      { key: "dueDate", label: "Due Date", required: false, candidates: ["due date", "due"] },
+      { key: "accountsDate", label: "Accounts Date", required: false, candidates: ["accounts date", "accounts"] },
+      { key: "paidDate", label: "Paid Date", required: false, candidates: ["paid date", "paid"] },
+      { key: "comment", label: "Comment", required: false, candidates: ["comment", "comments", "notes"] }
     ]
   };
-  function autoMatchHeader(sourceHeaders, candidates) {
-    for (const c of candidates) {
-      const cLow = c.toLowerCase();
-      const found = sourceHeaders.find((h2) => {
-        const hLow = h2.toLowerCase();
-        return hLow === cLow || hLow.includes(cLow);
-      });
-      if (found) return found;
-    }
-    return "";
-  }
-  function buildInitialMapping(fieldDefs, sourceHeaders) {
-    const m = {};
-    fieldDefs.forEach((f) => {
-      m[f.key] = autoMatchHeader(sourceHeaders, f.candidates);
-    });
-    return m;
-  }
   function applyConsultantMapping(mapping, rawRows) {
     const pick = (row, key) => mapping[key] ? String(row[mapping[key]] ?? "").trim() : "";
     return rawRows.map((row) => ({
@@ -25472,27 +25704,35 @@ ${suffix}`;
     const sheetMappings = /* @__PURE__ */ new Map();
     sheets.forEach((s) => {
       if (s.type && s.sourceHeaders) {
-        sheetMappings.set(s.name, buildInitialMapping(FIELD_DEFS[s.type], s.sourceHeaders));
+        sheetMappings.set(s.name, Object.fromEntries(
+          FIELD_DEFS[s.type].map((f) => [f.key, matchHeader(s.sourceHeaders, f.candidates)])
+        ));
       }
     });
+    const countCache = /* @__PURE__ */ new Map();
+    const getCachedCount = (s) => {
+      if (!s.type) return 0;
+      if (!countCache.has(s.name)) {
+        const mapping = sheetMappings.get(s.name) || {};
+        countCache.set(s.name, s.type === "consultants" ? applyConsultantMapping(mapping, s.objects).length : applyInvoiceMapping(mapping, s.objects, catId).length);
+      }
+      return countCache.get(s.name);
+    };
     const sheetListEl = h("tbody");
     const mappingEl = h("div", { class: "imp-map-section" });
     const previewEl = h("div", { class: "imp-scroll" });
     const summaryEl = h("span", { class: "imp-summary" });
     const importBtn = h("button", { class: "imp-btn-confirm" }, "Import");
-    const countMapped = (s) => {
-      if (!s.type) return 0;
-      const mapping = sheetMappings.get(s.name) || {};
-      return s.type === "consultants" ? applyConsultantMapping(mapping, s.objects).length : applyInvoiceMapping(mapping, s.objects, catId).length;
-    };
-    const renderPreviewAndFooter = () => {
+    const renderPreviewAndFooter = (activeMapped) => {
       previewEl.innerHTML = "";
       const sheet = sheets.find((s) => s.name === activeSheet);
+      const mapped = activeMapped ?? (sheet?.type ? (() => {
+        const mapping = sheetMappings.get(sheet.name) || {};
+        return sheet.type === "consultants" ? applyConsultantMapping(mapping, sheet.objects) : applyInvoiceMapping(mapping, sheet.objects, catId);
+      })() : []);
       if (!sheet?.type) {
         previewEl.appendChild(h("div", { class: "imp-empty" }, "Click a recognised sheet above to preview its data."));
       } else {
-        const mapping = sheetMappings.get(sheet.name) || {};
-        const mapped = sheet.type === "consultants" ? applyConsultantMapping(mapping, sheet.objects) : applyInvoiceMapping(mapping, sheet.objects, catId);
         const cols = XLSX_COLS[sheet.type];
         const preview = mapped.slice(0, 100);
         if (!preview.length) {
@@ -25518,8 +25758,9 @@ ${suffix}`;
         }
       }
       const included = sheets.filter((s) => s.type && include.get(s.name));
-      const nCons = included.filter((s) => s.type === "consultants").reduce((n, s) => n + countMapped(s), 0);
-      const nInv = included.filter((s) => s.type === "invoices").reduce((n, s) => n + countMapped(s), 0);
+      const countFor = (s) => s.name === activeSheet ? mapped.length : getCachedCount(s);
+      const nCons = included.filter((s) => s.type === "consultants").reduce((n, s) => n + countFor(s), 0);
+      const nInv = included.filter((s) => s.type === "invoices").reduce((n, s) => n + countFor(s), 0);
       const parts = [];
       if (nCons) parts.push(`${nCons} consultant${nCons !== 1 ? "s" : ""}`);
       if (nInv) parts.push(`${nInv} invoice${nInv !== 1 ? "s" : ""}`);
@@ -25529,10 +25770,16 @@ ${suffix}`;
       importBtn.textContent = total > 0 ? `Import ${total} rows` : "Import";
     };
     const renderAll = () => {
+      const sheet = sheets.find((s) => s.name === activeSheet);
+      let activeMapped = [];
+      if (sheet?.type) {
+        const mapping = sheetMappings.get(sheet.name) || {};
+        activeMapped = sheet.type === "consultants" ? applyConsultantMapping(mapping, sheet.objects) : applyInvoiceMapping(mapping, sheet.objects, catId);
+      }
       sheetListEl.innerHTML = "";
       sheets.forEach((s) => {
         const isOn = include.get(s.name);
-        const count = s.type ? countMapped(s) : null;
+        const count = s.type ? s.name === activeSheet ? activeMapped.length : getCachedCount(s) : null;
         const toggle = h("button", { class: `imp-toggle${isOn ? " imp-toggle-on" : ""}`, disabled: !s.type }, isOn ? "Include" : "Skip");
         if (s.type) {
           toggle.addEventListener("click", () => {
@@ -25556,13 +25803,11 @@ ${suffix}`;
         ));
       });
       mappingEl.innerHTML = "";
-      const sheet = sheets.find((s) => s.name === activeSheet);
       if (sheet?.type && sheet.sourceHeaders?.length) {
-        const fieldDefs = FIELD_DEFS[sheet.type];
         const mapping = sheetMappings.get(sheet.name);
         mappingEl.appendChild(h("div", { class: "imp-map-header" }, `Column mapping \u2014 ${sheet.name}`));
         const grid = h("div", { class: "imp-map-grid" });
-        fieldDefs.forEach(({ key, label, required }) => {
+        FIELD_DEFS[sheet.type].forEach(({ key, label, required }) => {
           const sel = h("select", { class: "imp-map-sel" });
           sel.appendChild(h("option", { value: "" }, "\u2014 none \u2014"));
           sheet.sourceHeaders.forEach((src) => {
@@ -25572,6 +25817,7 @@ ${suffix}`;
           });
           sel.addEventListener("change", () => {
             mapping[key] = sel.value;
+            countCache.delete(sheet.name);
             renderPreviewAndFooter();
           });
           grid.appendChild(h(
@@ -25583,7 +25829,7 @@ ${suffix}`;
         });
         mappingEl.appendChild(grid);
       }
-      renderPreviewAndFooter();
+      renderPreviewAndFooter(activeMapped);
     };
     importBtn.addEventListener("click", () => {
       const conSheets = sheets.filter((s) => s.type === "consultants" && include.get(s.name));
