@@ -215,45 +215,35 @@ export async function initFromSupabase(userId) {
   S.loading = true;
   renderFn();
 
-  // Snapshot the data reference — if it changes during the fetch, a local
-  // mutation happened while we were loading; in that case we preserve the
-  // user's change rather than overwriting with the remote version.
+  // Snapshot the data reference — if it changes during the fetch, a real
+  // user action happened while loading; preserve that over the remote version.
   const dataAtStart = S.data;
 
   try {
-    // Timeout safety: if Supabase hangs for >10 s, unblock the UI anyway
+    // Supabase is the single source of truth.
+    // localStorage is a display cache only — it is never uploaded to Supabase here.
     const withTimeout = (promise, ms) =>
       Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
 
-    const remote = await withTimeout(loadBoard(userId), 10_000);
+    const remote = await withTimeout(loadBoard(userId), 15_000);
 
     if (S.data !== dataAtStart) {
-      // User mutated data while we were loading — their version is authoritative
+      // User made a real change while we were loading — save it to Supabase.
       saveBoard(userId, S.data).catch(e => console.warn('[supabase] post-init save failed:', e.message));
     } else if (remote) {
-      // Existing Supabase data — use it and refresh the local cache
+      // Remote data is authoritative — overwrite anything in the local cache.
       S.data = remote;
       saveData(remote);
-    } else {
-      // New user — migrate localStorage data if present, otherwise DEFAULT applies
-      const local = (() => {
-        try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : null; }
-        catch { return null; }
-      })();
-      if (local) {
-        S.data = local;
-        saveBoard(userId, local).catch(e => console.warn('[supabase] initial save failed:', e.message));
-      }
-      // If neither, S.data is already DEFAULT from startup
     }
+    // else: remote is null → brand-new user with no board row yet.
+    // S.data stays as DEFAULT; the first real save will create the row.
+
   } catch (err) {
-    console.warn('[supabase] initFromSupabase failed, falling back to local data:', err.message);
-    // Fall back to whatever is in localStorage / DEFAULT
-    const local = (() => {
-      try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : null; }
-      catch { return null; }
-    })();
-    if (local && S.data === dataAtStart) S.data = local;
+    // Supabase unreachable or timed out.
+    // Show an error badge — do NOT silently fall back to local data or
+    // upload it, as that risks overwriting a valid remote board.
+    console.warn('[supabase] initFromSupabase failed:', err.message);
+    S.syncError = 'Could not load your board — refresh to try again';
   }
 
   S.loading = false;
